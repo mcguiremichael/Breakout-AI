@@ -74,10 +74,16 @@ class DQN(nn.Module):
         self.hidden_activation = hidden_activation
         self.in_shape = (1, 210, 160, 3)        
         self.conv1 = nn.Conv3d(in_channels=1,
-                                out_channels=1,
-                                kernel_size=(20, 20, 3),
-                                padding=(5, 5, 0),
-                                stride=10)
+                                out_channels=10,
+                                kernel_size=(4, 4, 3),
+                                padding=(2, 2, 0),
+                                stride=2)
+                                
+        self.conv2 = nn.Conv3d(in_channels=10, 
+                                out_channels = 10,
+                                kernel_size = (4, 4, 1),
+                                padding=(2, 2, 0),
+                                stride=2)
         
         self.n_size = self.conv_output(self.in_shape)
         
@@ -96,7 +102,11 @@ class DQN(nn.Module):
         return n_size
 
     def forward_features(self, x):
+        x = F.max_pool3d(x, (2, 2, 1), (2, 2, 1))
         x = self.hidden_activation(self.conv1(x))
+        #x = F.max_pool3d(x, (2, 2, 1), (2, 2, 1))
+        x = self.hidden_activation(self.conv2(x))
+        x = F.max_pool3d(x, (2, 2, 1), (2, 2, 1))
         return x
 
     def forward(self, x):
@@ -124,9 +134,9 @@ class BreakoutAgent():
     Defines cartpole agent
     '''
 
-    def __init__(self, num_episodes = 100, discount = 0.999, epsilon_max = 1.0,
-                epsilon_min = 0.05, epsilon_decay = 200, lr = 3e-3,
-                batch_size = 2, copy_frequency = 10):
+    def __init__(self, num_episodes = 100, discount = 0.99, epsilon_max = 1.0,
+                epsilon_min = 0.05, epsilon_decay = 200, lr = 3e-5,
+                batch_size = 40, copy_frequency = 200):
         '''
         Instantiates DQN agent
 
@@ -159,10 +169,11 @@ class BreakoutAgent():
         
         print(self.env.action_space, self.env.observation_space)
         
-        self.model = DQN(self.obs_space[0] * self.obs_space[1] * self.obs_space[2], len(self.action_space), [128, 128])
+        self.model = DQN(self.obs_space[0] * self.obs_space[1] * self.obs_space[2], len(self.action_space), [256, 256])
         self.model = torch.nn.DataParallel(self.model).cuda()
         self.target_model = copy.deepcopy(self.model)
         self.optimizer = optim.Adam(self.model.parameters(), lr = lr)
+        self.train_freq = 10
 
     def select_action(self, state, steps_done = 0, explore = True):
         '''
@@ -202,7 +213,7 @@ class BreakoutAgent():
             while not done:
                 # Select action and take step
                 print(steps_done)
-                #self.env.render()
+                self.env.render()
                 action = self.select_action(state, steps_done)
                 next_state, reward, done, _ = self.env.step(action)
 
@@ -219,7 +230,7 @@ class BreakoutAgent():
                 duration += 1
 
                 # Sample from replay memory if full memory is full capacity
-                if len(self.memory) >= self.batch_size:
+                if len(self.memory) >= self.batch_size and steps_done % self.train_freq == 0:
                     batch = self.memory.sample(self.batch_size)
                     batch = Transition(*zip(*batch))
                     state_batch = Variable(torch.cat(batch.state)).cuda()
@@ -242,7 +253,7 @@ class BreakoutAgent():
 
                     # Make sure the final loss is not volatile
                     next_state_values.volatile = False
-                    next_state_values = next_state_values * self.discount + reward_batch
+                    next_state_values = next_state_values * self.discount +  reward_batch
 
                     # Define loss function and optimize
                     loss = F.mse_loss(q_batch, next_state_values)
