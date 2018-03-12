@@ -20,9 +20,13 @@ import torch.optim as optim
 import torch.nn.functional as F
 from torch.autograd import Variable
 from collections import namedtuple
+import time
 
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward', 'nonterminal'))
+
+STATE_DEPTH = 3
+
 
 ######################################################################
 # Replay Memory
@@ -34,6 +38,8 @@ class ReplayMemory():
         self.capacity = capacity
         self.memory = []
         self.position = 0
+        self.done_indices = []
+        self.states = np.empty((0, 1, 210, 160, 3))
 
     def push(self, item):
         ''' Stores item in replay memory '''
@@ -45,7 +51,24 @@ class ReplayMemory():
 
     def sample(self, batch_size):
         ''' Samples item from replay memory '''
-        return random.sample(self.memory, batch_size)
+        return np.array(random.sample(self.memory, batch_size))
+        #output = augment_sample(indices)
+        '''
+        IMPLEMENT SMART BATCH SELECTION HERE
+        '''
+    
+    def purge(self):
+        if (len(self.memory) > 20000):
+            amount = self.done_indices[5]
+            self.memory = np.delete(np.array(self.memory), range(amount)).list()
+            self.states = np.delete(self.states, range(amount))
+            self.done_indices = np.delete(np.array(self.done_indices), range(5)).list()
+            for i in range(len(self.done_indices)):
+                self.done_indices[i] -= amount
+        
+    def augment_sample(self, sample):
+        for i in range(len(sample)):
+            s1 = self.memory[i]
 
     def __len__(self):
         ''' Current size or replay memory '''
@@ -72,15 +95,15 @@ class DQN(nn.Module):
         '''
         super(DQN, self).__init__()
         self.hidden_activation = hidden_activation
-        self.in_shape = (1, 210, 160, 3)        
+        self.in_shape = (1, 210, 160, 3*STATE_DEPTH)        
         self.conv1 = nn.Conv3d(in_channels=1,
-                                out_channels=10,
-                                kernel_size=(4, 4, 3),
+                                out_channels=15,
+                                kernel_size=(4, 4, 3*STATE_DEPTH),
                                 padding=(2, 2, 0),
                                 stride=2)
                                 
-        self.conv2 = nn.Conv3d(in_channels=10, 
-                                out_channels = 10,
+        self.conv2 = nn.Conv3d(in_channels=15, 
+                                out_channels = 12,
                                 kernel_size = (4, 4, 1),
                                 padding=(2, 2, 0),
                                 stride=2)
@@ -120,10 +143,15 @@ class DQN(nn.Module):
         Return:
         q : (Variable FloatTensor) tensor of Q values of size (batch_size, output_size)
         '''
+        
+        #self.conv1.double()
+        #self.conv2.double()
+        
         x = self.forward_features(x)
         x = x.view(-1, self.n_size)
         h = x
         for l in range(self.num_layers - 1):
+            #self.lin_layers[l].double()
             h = self.hidden_activation(self.lin_layers[l](h))
         q = self.lin_layers[-1](h)
         return q
@@ -134,9 +162,9 @@ class BreakoutAgent():
     Defines cartpole agent
     '''
 
-    def __init__(self, num_episodes = 100, discount = 0.99, epsilon_max = 1.0,
-                epsilon_min = 0.05, epsilon_decay = 200, lr = 3e-5,
-                batch_size = 40, copy_frequency = 200):
+    def __init__(self, num_episodes = 1000, discount = 0.99, epsilon_max = 1.0,
+                epsilon_min = 0.05, epsilon_decay = 200, lr = 1e-4,
+                batch_size = 90, copy_frequency = 400):
         '''
         Instantiates DQN agent
 
@@ -174,6 +202,7 @@ class BreakoutAgent():
         self.target_model = copy.deepcopy(self.model)
         self.optimizer = optim.Adam(self.model.parameters(), lr = lr)
         self.train_freq = 10
+        self.errors = []
 
     def select_action(self, state, steps_done = 0, explore = True):
         '''
@@ -189,14 +218,57 @@ class BreakoutAgent():
 
         # With prob 1 - epsilon choose action to max Q
         if sample > epsilon or not explore:
+            state = torch.from_numpy(state).type(torch.FloatTensor).cuda()
             maxQ, argmax = torch.max(self.model(Variable(state, volatile = True)), dim = 1)
             return argmax.data[0]
 
         # With prob epsilon choose action randomly
         else:
             return random.randint(0, len(self.action_space)-1)
+        
+    def augment(self, curr_state, isnext=False, cs=None):
+        if (STATE_DEPTH == 1):
+            return curr_state
+        s = curr_state.shape
+        index = len(self.memory)-1
+        counter = STATE_DEPTH-1
+        output = curr_state
+        previous = []
+        past_start = False
+        if (isnext):
+            curr_state = np.concatenate([curr_state, cs], 4)
+            counter -= 1
+        while (counter > 0):
+            if (index < 0):
+                curr_state = np.concatenate([curr_state, np.zeros((1, 1, s[2], s[3], s[4] * counter))], 4)
+                break
+            prev = self.memory.memory[index]
+            
+            if (prev[4][0]):
+                curr_state = np.concatenate([curr_state, np.zeros((1, 1, s[2], s[3], s[4] * counter))], 4)
+                break
+            else:
+                curr_state = np.concatenate([curr_state, prev[0]], 4);
+            index -= 1
+            counter -= 1
+        return curr_state
+        
+    def group_augment(self, states, isnext=False, cs=None):
+        if (STATE_DEPTH == 1):
+            return np.concatenate(states)
+        s = states[0].shape
+        length = len(states)
+        
+        outputs = np.zeros((length, 1, s[2], s[3], s[4] * STATE_DEPTH))
+        if (not isnext):
+            for i in range(len(states)):
+                outputs[i,:,:,:,:] = self.augment(states[i])
+        else:
+            for i in range(len(states)):
+                outputs[i,:,:,:,:] = self.augment(states[i], isnext=True, cs=cs[i])
+        return outputs
 
-    def train(self, show_plot = True):
+    def train(self, show_plot = True, training=True, num_episodes=1000):
         '''
         Trains the cartpole agent.
 
@@ -207,18 +279,22 @@ class BreakoutAgent():
         durations = []
         for ep in range(self.num_episodes):
             state = self.env.reset()
-            state = torch.from_numpy(state.reshape((1, 1, 210, 160, 3))).type(torch.FloatTensor)
+            state = state.reshape((1, 1, 210, 160, 3))
             done = False
             duration = 0
+            self.memory.done_indices.append(steps_done)
+            print("Beginning game %d" % len(self.memory.done_indices))
+            self.memory.purge()
             while not done:
                 # Select action and take step
-                print(steps_done)
                 self.env.render()
-                action = self.select_action(state, steps_done)
+                #self.memory.states = np.concatenate([self.memory.states, state], 0)
+                aug_state = self.augment(state)
+                action = self.select_action(aug_state, steps_done)
                 next_state, reward, done, _ = self.env.step(action)
 
                 # Convert s, a, r, s', d to tensors
-                next_state = torch.from_numpy(next_state.reshape((1, 1, 210, 160, 3))).type(torch.FloatTensor)
+                next_state = next_state.reshape((1, 1, 210, 160, 3))
                 action = torch.LongTensor([[action]])
                 reward = torch.FloatTensor([reward])
                 nonterminal = torch.ByteTensor([not done])
@@ -230,12 +306,15 @@ class BreakoutAgent():
                 duration += 1
 
                 # Sample from replay memory if full memory is full capacity
-                if len(self.memory) >= self.batch_size and steps_done % self.train_freq == 0:
+                if len(self.memory) >= self.batch_size and steps_done % self.train_freq == 0 and training and len(self.memory.done_indices) > 0:
                     batch = self.memory.sample(self.batch_size)
                     batch = Transition(*zip(*batch))
-                    state_batch = Variable(torch.cat(batch.state)).cuda()
+                    x = self.group_augment(batch.state)
+                    y = self.group_augment(batch.next_state, isnext=True, cs=batch.state)
+                    
+                    state_batch = Variable(torch.from_numpy(x).type(torch.FloatTensor)).cuda()
                     action_batch = Variable(torch.cat(batch.action)).cuda()
-                    next_state_batch = Variable(torch.cat(batch.next_state), volatile = True).cuda()
+                    next_state_batch = Variable(torch.from_numpy(y).type(torch.FloatTensor), volatile = True).cuda()
                     reward_batch = Variable(torch.cat(batch.reward)).cuda()
                     nonterminal_mask = torch.cat(batch.nonterminal).cuda()
 
@@ -260,6 +339,9 @@ class BreakoutAgent():
                     self.optimizer.zero_grad()
                     loss.backward()
                     self.optimizer.step()
+                    
+                    print("Loss at %d is %f" % (steps_done, loss[0]))
+                    self.errors.append(loss.data[0])
 
                 # Copy to target network
                 # Most likely unneeded for cart pole, but targets networks are used
@@ -268,10 +350,11 @@ class BreakoutAgent():
                     self.target_model = copy.deepcopy(self.model)
 
                 # Plot durations
-                if done and show_plot:
+                if done and show_plot and len(self.errors) > 0:
                     durations.append(duration)
-                    self.plot_durations(durations)
+                    self.plot_durations(self.errors)
                     duration = 0
+                    self.env.reset()
 
     def plot_durations(self, durations):
         '''
@@ -291,16 +374,23 @@ class BreakoutAgent():
 
     def run_and_visualize(self):
         ''' Runs and visualizes the cartpole agents. '''
-        state = self.env.reset()
-        state = torch.FloatTensor([state])
-        actions = []
-        for i in range(500):
-            self.env.reset()
+        self.env.reset()
+        for i in range(50):
+            #self.env.reset()
+            print ("Running and visualizing now . . .")
+            state = self.env.reset()
+            state = torch.from_numpy(state.reshape((1, 1, 210, 160, 3))).type(torch.FloatTensor)
+            actions = []
+            done = False
+            t = 0
             while not done:
-                self.env.render()
+                print ("loop is iterating", t)
                 action = self.select_action(state, explore = False)
                 state, reward, done, _ = self.env.step(action)
-                state = torch.FloatTensor([state])
+                state = torch.from_numpy(state.reshape((1, 1, 210, 160, 3))).type(torch.FloatTensor)
+                t += 1
+                time.sleep(0.05)
+                self.env.render()
                 if done:
                     print("Episode finished after {} timesteps".format(t+1))
                     break
@@ -315,7 +405,7 @@ def main():
     cpa = BreakoutAgent()
     print(cpa.model)
     cpa.train()
-    cpa.run_and_visualize()
+    cpa.train(training=False, num_episodes=1000)
 
 if __name__ == '__main__':
     main()
