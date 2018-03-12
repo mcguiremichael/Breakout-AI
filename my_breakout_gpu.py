@@ -97,13 +97,13 @@ class DQN(nn.Module):
         self.hidden_activation = hidden_activation
         self.in_shape = (1, 210, 160, 3*STATE_DEPTH)        
         self.conv1 = nn.Conv3d(in_channels=1,
-                                out_channels=15,
-                                kernel_size=(4, 4, 3*STATE_DEPTH),
+                                out_channels=16,
+                                kernel_size=(8, 8, 3*STATE_DEPTH),
                                 padding=(2, 2, 0),
-                                stride=2)
+                                stride=4)
                                 
-        self.conv2 = nn.Conv3d(in_channels=15, 
-                                out_channels = 12,
+        self.conv2 = nn.Conv3d(in_channels=16, 
+                                out_channels = 32,
                                 kernel_size = (4, 4, 1),
                                 padding=(2, 2, 0),
                                 stride=2)
@@ -111,11 +111,11 @@ class DQN(nn.Module):
         self.n_size = self.conv_output(self.in_shape)
         
         
-        sizes = [self.n_size] + [input_size] + hidden_sizes + [output_size]
+        sizes = [self.n_size] + hidden_sizes + [output_size]
         self.num_layers = len(hidden_sizes) + 1 # hidden layers + output_layer
         self.lin_layers = nn.ModuleList()
 
-        for l in range(self.num_layers+1):
+        for l in range(self.num_layers):
             self.lin_layers.append(nn.Linear(sizes[l], sizes[l+1]))
 
     def conv_output(self, shape):
@@ -163,8 +163,8 @@ class BreakoutAgent():
     '''
 
     def __init__(self, num_episodes = 1000, discount = 0.99, epsilon_max = 1.0,
-                epsilon_min = 0.05, epsilon_decay = 200, lr = 1e-4,
-                batch_size = 90, copy_frequency = 400):
+                epsilon_min = 0.05, epsilon_decay = 40, lr = 1e-5,
+                batch_size = 32, copy_frequency = 5):
         '''
         Instantiates DQN agent
 
@@ -197,7 +197,7 @@ class BreakoutAgent():
         
         print(self.env.action_space, self.env.observation_space)
         
-        self.model = DQN(self.obs_space[0] * self.obs_space[1] * self.obs_space[2], len(self.action_space), [256, 256])
+        self.model = DQN(self.obs_space[0] * self.obs_space[1] * self.obs_space[2], len(self.action_space), [256])
         self.model = torch.nn.DataParallel(self.model).cuda()
         self.target_model = copy.deepcopy(self.model)
         self.optimizer = optim.Adam(self.model.parameters(), lr = lr)
@@ -213,8 +213,13 @@ class BreakoutAgent():
         action : (int) action choosen from state
         '''
         sample = random.random()
-        epsilon = self.epsilon_min + (self.epsilon_max - self.epsilon_min) * \
-            math.exp(-1. * steps_done / self.epsilon_decay)
+        #epsilon = self.epsilon_min + (self.epsilon_max - self.epsilon_min) * \
+        #    math.exp(-1. * steps_done / self.epsilon_decay)
+            
+        if (steps_done > 10e6):
+            epsilon = 0.1
+        else:
+            epsilon = self.epsilon_max - ((self.epsilon_max - self.epsilon_min) * steps_done) / 10e6
 
         # With prob 1 - epsilon choose action to max Q
         if sample > epsilon or not explore:
@@ -293,6 +298,9 @@ class BreakoutAgent():
                 action = self.select_action(aug_state, steps_done)
                 next_state, reward, done, _ = self.env.step(action)
 
+                if (done):
+                    reward -= 1
+
                 # Convert s, a, r, s', d to tensors
                 next_state = next_state.reshape((1, 1, 210, 160, 3))
                 action = torch.LongTensor([[action]])
@@ -306,7 +314,7 @@ class BreakoutAgent():
                 duration += 1
 
                 # Sample from replay memory if full memory is full capacity
-                if len(self.memory) >= self.batch_size and steps_done % self.train_freq == 0 and training and len(self.memory.done_indices) > 0:
+                if len(self.memory) >= 2 * self.batch_size and steps_done % self.train_freq == 0 and training:
                     batch = self.memory.sample(self.batch_size)
                     batch = Transition(*zip(*batch))
                     x = self.group_augment(batch.state)
@@ -346,13 +354,13 @@ class BreakoutAgent():
                 # Copy to target network
                 # Most likely unneeded for cart pole, but targets networks are used
                 # generally in DQN.
-                if steps_done % self.copy_frequency == 0:
+                if len(self.errors) % self.copy_frequency == 0:
                     self.target_model = copy.deepcopy(self.model)
 
                 # Plot durations
                 if done and show_plot and len(self.errors) > 0:
                     durations.append(duration)
-                    self.plot_durations(self.errors)
+                    self.plot_durations(durations)
                     duration = 0
                     self.env.reset()
 
@@ -367,8 +375,8 @@ class BreakoutAgent():
         plt.clf()
         durations_a = np.array(durations)
         plt.title('Training...')
-        plt.xlabel('Episode')
-        plt.ylabel('Duration')
+        plt.xlabel('Duration')
+        plt.ylabel('Error')
         plt.plot(durations_a)
         plt.pause(0.001)  # pause a bit so that plots are updated
 
