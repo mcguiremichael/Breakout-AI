@@ -21,11 +21,12 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 from collections import namedtuple
 import time
+from operator import itemgetter
 
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward', 'nonterminal'))
 
-STATE_DEPTH = 3
+STATE_DEPTH = 4
 
 
 ######################################################################
@@ -39,7 +40,7 @@ class ReplayMemory():
         self.memory = []
         self.position = 0
         self.done_indices = []
-        self.states = np.empty((0, 1, 210, 160, 3))
+        self.sensitive_indices = []
 
     def push(self, item):
         ''' Stores item in replay memory '''
@@ -51,11 +52,17 @@ class ReplayMemory():
 
     def sample(self, batch_size):
         ''' Samples item from replay memory '''
-        return np.array(random.sample(self.memory, batch_size))
+        if (random.random() > 0.5 and len(self.sensitive_indices) >= batch_size):
+            indices = random.sample(self.sensitive_indices, batch_size)
+        else:
+            indices = random.sample(range(len(self.memory)), batch_size)
+        samples = np.array([self.memory[i] for i in indices if (i < len(self.memory)) ])
+        
         #output = augment_sample(indices)
         '''
         IMPLEMENT SMART BATCH SELECTION HERE
         '''
+        return np.array(random.sample(self.memory, batch_size)), indices
     
     def purge(self):
         if (len(self.memory) > 20000):
@@ -117,6 +124,8 @@ class DQN(nn.Module):
 
         for l in range(self.num_layers):
             self.lin_layers.append(nn.Linear(sizes[l], sizes[l+1]))
+            self.lin_layers[-1].weight.data.uniform_(-0.01, 0.01)
+            self.lin_layers[-1].bias.data.uniform_(-0.01, 0.01)
 
     def conv_output(self, shape):
         inp = Variable(torch.rand(1, *shape))
@@ -129,7 +138,7 @@ class DQN(nn.Module):
         x = self.hidden_activation(self.conv1(x))
         #x = F.max_pool3d(x, (2, 2, 1), (2, 2, 1))
         x = self.hidden_activation(self.conv2(x))
-        x = F.max_pool3d(x, (2, 2, 1), (2, 2, 1))
+        #x = F.max_pool3d(x, (2, 2, 1), (2, 2, 1))
         return x
 
     def forward(self, x):
@@ -162,8 +171,8 @@ class BreakoutAgent():
     Defines cartpole agent
     '''
 
-    def __init__(self, num_episodes = 1000, discount = 0.99, epsilon_max = 1.0,
-                epsilon_min = 0.05, epsilon_decay = 40, lr = 1e-5,
+    def __init__(self, num_episodes = 5000, discount = 0.99, epsilon_max = 1.0,
+                epsilon_min = 0.05, epsilon_decay = 10e6, lr = 1e-4,
                 batch_size = 32, copy_frequency = 5):
         '''
         Instantiates DQN agent
@@ -203,7 +212,7 @@ class BreakoutAgent():
         self.optimizer = optim.Adam(self.model.parameters(), lr = lr)
         self.train_freq = 10
         self.errors = []
-
+ 
     def select_action(self, state, steps_done = 0, explore = True):
         '''
         Given state returns an action by either randomly choosing an action or
@@ -216,10 +225,10 @@ class BreakoutAgent():
         #epsilon = self.epsilon_min + (self.epsilon_max - self.epsilon_min) * \
         #    math.exp(-1. * steps_done / self.epsilon_decay)
             
-        if (steps_done > 10e6):
+        if (steps_done > self.epsilon_decay):
             epsilon = 0.1
         else:
-            epsilon = self.epsilon_max - ((self.epsilon_max - self.epsilon_min) * steps_done) / 10e6
+            epsilon = self.epsilon_max - ((self.epsilon_max - self.epsilon_min) * steps_done) / self.epsilon_decay
 
         # With prob 1 - epsilon choose action to max Q
         if sample > epsilon or not explore:
@@ -231,11 +240,14 @@ class BreakoutAgent():
         else:
             return random.randint(0, len(self.action_space)-1)
         
-    def augment(self, curr_state, isnext=False, cs=None):
+    def augment(self, curr_state, isnext=False, cs=None, ind=-1):
         if (STATE_DEPTH == 1):
             return curr_state
         s = curr_state.shape
-        index = len(self.memory)-1
+        if (ind == -1):
+            index = len(self.memory)-1
+        else:
+            index = ind
         counter = STATE_DEPTH-1
         output = curr_state
         previous = []
@@ -244,13 +256,13 @@ class BreakoutAgent():
             curr_state = np.concatenate([curr_state, cs], 4)
             counter -= 1
         while (counter > 0):
-            if (index < 0):
-                curr_state = np.concatenate([curr_state, np.zeros((1, 1, s[2], s[3], s[4] * counter))], 4)
+            if (index < 0 or index >= len(self.memory)):
+                curr_state = np.concatenate([curr_state, np.zeros((1, 1, s[2], s[3], 3 * counter))], 4)
                 break
             prev = self.memory.memory[index]
             
-            if (prev[4][0]):
-                curr_state = np.concatenate([curr_state, np.zeros((1, 1, s[2], s[3], s[4] * counter))], 4)
+            if (not prev[4][0]):
+                curr_state = np.concatenate([curr_state, np.zeros((1, 1, s[2], s[3], 3 * counter))], 4)
                 break
             else:
                 curr_state = np.concatenate([curr_state, prev[0]], 4);
@@ -258,19 +270,20 @@ class BreakoutAgent():
             counter -= 1
         return curr_state
         
-    def group_augment(self, states, isnext=False, cs=None):
+    def group_augment(self, states, isnext=False, cs=None, indices=[]):
         if (STATE_DEPTH == 1):
             return np.concatenate(states)
         s = states[0].shape
         length = len(states)
-        
+        if (len(indices) == 0):
+            indices = [-1 for i in range(len(states))]
         outputs = np.zeros((length, 1, s[2], s[3], s[4] * STATE_DEPTH))
         if (not isnext):
             for i in range(len(states)):
-                outputs[i,:,:,:,:] = self.augment(states[i])
+                outputs[i,:,:,:,:] = self.augment(states[i], ind=indices[i])
         else:
             for i in range(len(states)):
-                outputs[i,:,:,:,:] = self.augment(states[i], isnext=True, cs=cs[i])
+                outputs[i,:,:,:,:] = self.augment(states[i], isnext=True, cs=cs[i], ind=indices[i])
         return outputs
 
     def train(self, show_plot = True, training=True, num_episodes=1000):
@@ -282,14 +295,16 @@ class BreakoutAgent():
         '''
         steps_done = 0
         durations = []
-        for ep in range(self.num_episodes):
+        if (training):
+            num_episodes = self.num_episodes
+        for ep in range(num_episodes):
             state = self.env.reset()
             state = state.reshape((1, 1, 210, 160, 3))
             done = False
             duration = 0
             self.memory.done_indices.append(steps_done)
             print("Beginning game %d" % len(self.memory.done_indices))
-            self.memory.purge()
+            #self.memory.purge()
             while not done:
                 # Select action and take step
                 self.env.render()
@@ -300,6 +315,8 @@ class BreakoutAgent():
 
                 if (done):
                     reward -= 1
+                    
+                r = reward
 
                 # Convert s, a, r, s', d to tensors
                 next_state = next_state.reshape((1, 1, 210, 160, 3))
@@ -315,10 +332,12 @@ class BreakoutAgent():
 
                 # Sample from replay memory if full memory is full capacity
                 if len(self.memory) >= 2 * self.batch_size and steps_done % self.train_freq == 0 and training:
-                    batch = self.memory.sample(self.batch_size)
+                    #batch = self.memory.sample(self.batch_size)
+                    #batch = Transition(*zip(*batch))
+                    batch, indices = self.memory.sample(self.batch_size)
                     batch = Transition(*zip(*batch))
-                    x = self.group_augment(batch.state)
-                    y = self.group_augment(batch.next_state, isnext=True, cs=batch.state)
+                    x = self.group_augment(batch.state, indices=indices)
+                    y = self.group_augment(batch.next_state, isnext=True, cs=batch.state, indices=indices)
                     
                     state_batch = Variable(torch.from_numpy(x).type(torch.FloatTensor)).cuda()
                     action_batch = Variable(torch.cat(batch.action)).cuda()
@@ -343,7 +362,7 @@ class BreakoutAgent():
                     next_state_values = next_state_values * self.discount +  reward_batch
 
                     # Define loss function and optimize
-                    loss = F.mse_loss(q_batch, next_state_values)
+                    loss = F.l1_loss(q_batch, next_state_values)
                     self.optimizer.zero_grad()
                     loss.backward()
                     self.optimizer.step()
@@ -363,6 +382,9 @@ class BreakoutAgent():
                     self.plot_durations(durations)
                     duration = 0
                     self.env.reset()
+                
+                if (r != 0):
+                    self.memory.sensitive_indices.append(steps_done)
 
     def plot_durations(self, durations):
         '''
@@ -375,8 +397,8 @@ class BreakoutAgent():
         plt.clf()
         durations_a = np.array(durations)
         plt.title('Training...')
-        plt.xlabel('Duration')
-        plt.ylabel('Error')
+        plt.xlabel('Iteration')
+        plt.ylabel('Duration')
         plt.plot(durations_a)
         plt.pause(0.001)  # pause a bit so that plots are updated
 
@@ -413,7 +435,7 @@ def main():
     cpa = BreakoutAgent()
     print(cpa.model)
     cpa.train()
-    cpa.train(training=False, num_episodes=1000)
+    cpa.train(training=False, num_episodes=100000)
 
 if __name__ == '__main__':
     main()
