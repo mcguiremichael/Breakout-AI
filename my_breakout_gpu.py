@@ -27,7 +27,7 @@ Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward', 'nonterminal'))
 
 STATE_DEPTH = 4
-
+IMG_DEPTH = 1
 
 ######################################################################
 # Replay Memory
@@ -52,7 +52,7 @@ class ReplayMemory():
 
     def sample(self, batch_size):
         ''' Samples item from replay memory '''
-        if (random.random() > 0.5 and len(self.sensitive_indices) >= batch_size):
+        if (random.random() > 0.7 and len(self.sensitive_indices) >= batch_size):
             indices = random.sample(self.sensitive_indices, batch_size)
         else:
             indices = random.sample(range(len(self.memory)), batch_size)
@@ -102,10 +102,10 @@ class DQN(nn.Module):
         '''
         super(DQN, self).__init__()
         self.hidden_activation = hidden_activation
-        self.in_shape = (1, 210, 160, 3*STATE_DEPTH)        
+        self.in_shape = (1, 210, 160, IMG_DEPTH*STATE_DEPTH)        
         self.conv1 = nn.Conv3d(in_channels=1,
                                 out_channels=16,
-                                kernel_size=(8, 8, 3*STATE_DEPTH),
+                                kernel_size=(8, 8, IMG_DEPTH*STATE_DEPTH),
                                 padding=(2, 2, 0),
                                 stride=4)
                                 
@@ -172,8 +172,8 @@ class BreakoutAgent():
     '''
 
     def __init__(self, num_episodes = 5000, discount = 0.99, epsilon_max = 1.0,
-                epsilon_min = 0.05, epsilon_decay = 10e6, lr = 1e-4,
-                batch_size = 32, copy_frequency = 5):
+                epsilon_min = 0.05, epsilon_decay = 10e6, lr = 5e-5,
+                batch_size = 64, copy_frequency = 5):
         '''
         Instantiates DQN agent
 
@@ -257,12 +257,12 @@ class BreakoutAgent():
             counter -= 1
         while (counter > 0):
             if (index < 0 or index >= len(self.memory)):
-                curr_state = np.concatenate([curr_state, np.zeros((1, 1, s[2], s[3], 3 * counter))], 4)
+                curr_state = np.concatenate([curr_state, np.zeros((1, 1, s[2], s[3], IMG_DEPTH * counter))], 4)
                 break
             prev = self.memory.memory[index]
             
             if (not prev[4][0]):
-                curr_state = np.concatenate([curr_state, np.zeros((1, 1, s[2], s[3], 3 * counter))], 4)
+                curr_state = np.concatenate([curr_state, np.zeros((1, 1, s[2], s[3], IMG_DEPTH * counter))], 4)
                 break
             else:
                 curr_state = np.concatenate([curr_state, prev[0]], 4);
@@ -277,7 +277,7 @@ class BreakoutAgent():
         length = len(states)
         if (len(indices) == 0):
             indices = [-1 for i in range(len(states))]
-        outputs = np.zeros((length, 1, s[2], s[3], s[4] * STATE_DEPTH))
+        outputs = np.zeros((length, 1, s[2], s[3], IMG_DEPTH * STATE_DEPTH))
         if (not isnext):
             for i in range(len(states)):
                 outputs[i,:,:,:,:] = self.augment(states[i], ind=indices[i])
@@ -300,6 +300,7 @@ class BreakoutAgent():
         for ep in range(num_episodes):
             state = self.env.reset()
             state = state.reshape((1, 1, 210, 160, 3))
+            state = self.convert_to_grayscale(state)
             done = False
             duration = 0
             self.memory.done_indices.append(steps_done)
@@ -320,6 +321,7 @@ class BreakoutAgent():
 
                 # Convert s, a, r, s', d to tensors
                 next_state = next_state.reshape((1, 1, 210, 160, 3))
+                next_state = self.convert_to_grayscale(next_state)
                 action = torch.LongTensor([[action]])
                 reward = torch.FloatTensor([reward])
                 nonterminal = torch.ByteTensor([not done])
@@ -362,7 +364,7 @@ class BreakoutAgent():
                     next_state_values = next_state_values * self.discount +  reward_batch
 
                     # Define loss function and optimize
-                    loss = F.l1_loss(q_batch, next_state_values)
+                    loss = F.mse_loss(q_batch, next_state_values)
                     self.optimizer.zero_grad()
                     loss.backward()
                     self.optimizer.step()
@@ -417,13 +419,17 @@ class BreakoutAgent():
                 print ("loop is iterating", t)
                 action = self.select_action(state, explore = False)
                 state, reward, done, _ = self.env.step(action)
-                state = torch.from_numpy(state.reshape((1, 1, 210, 160, 3))).type(torch.FloatTensor)
+                state = torch.from_numpy(state.reshape((1, 1, 210, 160, IMG_DEPTH))).type(torch.FloatTensor)
                 t += 1
                 time.sleep(0.05)
                 self.env.render()
                 if done:
                     print("Episode finished after {} timesteps".format(t+1))
                     break
+                    
+    def convert_to_grayscale(self, state):
+        gray_state = np.mean(state, axis=4).reshape((1, 1, 210, 160, 1))
+        return gray_state
                     
 def Breakout_action_space():
     return range(4)
