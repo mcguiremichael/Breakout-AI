@@ -52,11 +52,11 @@ class ReplayMemory():
 
     def sample(self, batch_size):
         ''' Samples item from replay memory '''
-        if (random.random() > 0.7 and len(self.sensitive_indices) >= batch_size):
+        if (random.random() > 0.7 and len(self.sensitive_indices) > batch_size):
             indices = random.sample(self.sensitive_indices, batch_size)
         else:
             indices = random.sample(range(len(self.memory)), batch_size)
-        samples = np.array([self.memory[i] for i in indices])
+        samples = np.array([self.memory[i] for i in indices if i < len(self.memory)])
         
         #output = augment_sample(indices)
         '''
@@ -172,7 +172,7 @@ class BreakoutAgent():
     '''
 
     def __init__(self, num_episodes = 5000, discount = 0.99, epsilon_max = 1.0,
-                epsilon_min = 0.05, epsilon_decay = 10e4, lr = 1e-4,
+                epsilon_min = 0.05, epsilon_decay = 10e5, lr = 1e-4,
                 batch_size = 64, copy_frequency = 5):
         '''
         Instantiates DQN agent
@@ -333,7 +333,7 @@ class BreakoutAgent():
                 duration += 1
 
                 # Sample from replay memory if full memory is full capacity
-                if len(self.memory) >= 2 * self.batch_size and steps_done % self.train_freq == 0 and training:
+                if len(self.memory) >= self.batch_size and steps_done % self.train_freq == 0 and training:
                     #batch = self.memory.sample(self.batch_size)
                     #batch = Transition(*zip(*batch))
                     batch, indices = self.memory.sample(self.batch_size)
@@ -358,8 +358,11 @@ class BreakoutAgent():
                     # next state
                     next_state_values = Variable(torch.zeros(self.batch_size)).cuda()
                     indices = torch.nonzero(nonterminal_mask).squeeze(1)
+                    preds = self.target_model(next_state_batch[indices])
+                    # print(indices.shape, preds.shape)
                     next_state_values[nonterminal_mask], _ = torch.max(
-                                self.target_model(next_state_batch[indices] ), dim = 1)
+                                preds,
+                                dim = 1)
 
                     # Make sure the final loss is not volatile
                     next_state_values.volatile = False
