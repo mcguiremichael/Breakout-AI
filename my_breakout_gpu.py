@@ -56,13 +56,13 @@ class ReplayMemory():
             indices = random.sample(self.sensitive_indices, batch_size)
         else:
             indices = random.sample(range(len(self.memory)), batch_size)
-        samples = np.array([self.memory[i] for i in indices if (i < len(self.memory)) ])
+        samples = np.array([self.memory[i] for i in indices])
         
         #output = augment_sample(indices)
         '''
         IMPLEMENT SMART BATCH SELECTION HERE
         '''
-        return np.array(random.sample(self.memory, batch_size)), indices
+        return samples, indices
     
     def purge(self):
         if (len(self.memory) > 20000):
@@ -172,7 +172,7 @@ class BreakoutAgent():
     '''
 
     def __init__(self, num_episodes = 5000, discount = 0.99, epsilon_max = 1.0,
-                epsilon_min = 0.05, epsilon_decay = 10e6, lr = 5e-5,
+                epsilon_min = 0.05, epsilon_decay = 10e4, lr = 1e-4,
                 batch_size = 64, copy_frequency = 5):
         '''
         Instantiates DQN agent
@@ -247,7 +247,7 @@ class BreakoutAgent():
         if (ind == -1):
             index = len(self.memory)-1
         else:
-            index = ind
+            index = ind-1
         counter = STATE_DEPTH-1
         output = curr_state
         previous = []
@@ -341,6 +341,8 @@ class BreakoutAgent():
                     x = self.group_augment(batch.state, indices=indices)
                     y = self.group_augment(batch.next_state, isnext=True, cs=batch.state, indices=indices)
                     
+                    #self.displayStack(x[0,:,:,:,:])
+                    
                     state_batch = Variable(torch.from_numpy(x).type(torch.FloatTensor)).cuda()
                     action_batch = Variable(torch.cat(batch.action)).cuda()
                     next_state_batch = Variable(torch.from_numpy(y).type(torch.FloatTensor), volatile = True).cuda()
@@ -387,6 +389,19 @@ class BreakoutAgent():
                 
                 if (r != 0):
                     self.memory.sensitive_indices.append(steps_done)
+
+    def displayStack(self, state):
+        state = state.reshape((210, 160, STATE_DEPTH))
+        self.displayImage(state[:,:,0])
+        self.displayImage(state[:,:,1])
+        self.displayImage(state[:,:,2])
+        self.displayImage(state[:,:,3])
+        
+
+    def displayImage(self, image):
+        plt.imshow(image)
+        plt.show()
+        plt.pause(0.1)
 
     def plot_durations(self, durations):
         '''
