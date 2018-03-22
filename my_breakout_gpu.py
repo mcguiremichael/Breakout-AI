@@ -173,7 +173,7 @@ class BreakoutAgent():
 
     def __init__(self, num_episodes = 5000, discount = 0.99, epsilon_max = 1.0,
                 epsilon_min = 0.05, epsilon_decay = 10e5, lr = 1e-4,
-                batch_size = 64, copy_frequency = 5):
+                batch_size = 32, copy_frequency = 5):
         '''
         Instantiates DQN agent
 
@@ -189,6 +189,9 @@ class BreakoutAgent():
         copy_frequency : (int) copy after a certain number of time steps
         '''
         # Save relevant hyperparameters
+        self.use_cuda = torch.cuda.is_available()
+        
+        
         self.num_episodes = num_episodes
         self.discount = discount
         self.epsilon_max = epsilon_max
@@ -207,7 +210,8 @@ class BreakoutAgent():
         print(self.env.action_space, self.env.observation_space)
         
         self.model = DQN(self.obs_space[0] * self.obs_space[1] * self.obs_space[2], len(self.action_space), [256])
-        self.model = torch.nn.DataParallel(self.model).cuda()
+        if (self.use_cuda):
+            self.model = torch.nn.DataParallel(self.model).cuda()
         self.target_model = copy.deepcopy(self.model)
         self.optimizer = optim.Adam(self.model.parameters(), lr = lr)
         self.train_freq = 10
@@ -232,7 +236,10 @@ class BreakoutAgent():
 
         # With prob 1 - epsilon choose action to max Q
         if sample > epsilon or not explore:
-            state = torch.from_numpy(state).type(torch.FloatTensor).cuda()
+            if (self.use_cuda):
+                state = torch.from_numpy(state).type(torch.FloatTensor).cuda()
+            else:
+                state = torch.from_numpy(state).type(torch.FloatTensor)
             maxQ, argmax = torch.max(self.model(Variable(state, volatile = True)), dim = 1)
             return argmax.data[0]
 
@@ -342,21 +349,36 @@ class BreakoutAgent():
                     y = self.group_augment(batch.next_state, isnext=True, cs=batch.state, indices=indices)
                     
                     #self.displayStack(x[0,:,:,:,:])
-                    
-                    state_batch = Variable(torch.from_numpy(x).type(torch.FloatTensor)).cuda()
-                    action_batch = Variable(torch.cat(batch.action)).cuda()
-                    next_state_batch = Variable(torch.from_numpy(y).type(torch.FloatTensor), volatile = True).cuda()
-                    reward_batch = Variable(torch.cat(batch.reward)).cuda()
-                    nonterminal_mask = torch.cat(batch.nonterminal).cuda()
+                    if (self.use_cuda):
+                        state_batch = Variable(torch.from_numpy(x).type(torch.FloatTensor)).cuda()
+                        action_batch = Variable(torch.cat(batch.action)).cuda()
+                        next_state_batch = Variable(torch.from_numpy(y).type(torch.FloatTensor), volatile = True).cuda()
+                        reward_batch = Variable(torch.cat(batch.reward)).cuda()
+                        nonterminal_mask = torch.cat(batch.nonterminal).cuda()
 
-                    # Predict Q(s, a) for s in batch
-                    q_batch = self.model(state_batch).gather(1, action_batch)
+                        # Predict Q(s, a) for s in batch
+                        q_batch = self.model(state_batch).gather(1, action_batch)
 
-                    # Calcuate target values
-                    # if terminal state, then target = rewards
-                    # else target = r(s, a) + discount * max_a Q(s', a) where s' is
-                    # next state
-                    next_state_values = Variable(torch.zeros(self.batch_size)).cuda()
+                        # Calcuate target values
+                        # if terminal state, then target = rewards
+                        # else target = r(s, a) + discount * max_a Q(s', a) where s' is
+                        # next state
+                        next_state_values = Variable(torch.zeros(self.batch_size)).cuda()
+                    else:
+                        state_batch = Variable(torch.from_numpy(x).type(torch.FloatTensor))
+                        action_batch = Variable(torch.cat(batch.action))
+                        next_state_batch = Variable(torch.from_numpy(y).type(torch.FloatTensor), volatile = True)
+                        reward_batch = Variable(torch.cat(batch.reward))
+                        nonterminal_mask = torch.cat(batch.nonterminal)
+
+                        # Predict Q(s, a) for s in batch
+                        q_batch = self.model(state_batch).gather(1, action_batch)
+
+                        # Calcuate target values
+                        # if terminal state, then target = rewards
+                        # else target = r(s, a) + discount * max_a Q(s', a) where s' is
+                        # next state
+                        next_state_values = Variable(torch.zeros(self.batch_size))
                     indices = torch.nonzero(nonterminal_mask).squeeze(1)
                     preds = self.target_model(next_state_batch[indices])
                     # print(indices.shape, preds.shape)
@@ -374,7 +396,10 @@ class BreakoutAgent():
                     loss.backward()
                     self.optimizer.step()
                     
-                    print("Loss at %d is %f" % (steps_done, loss[0]))
+                    if (self.use_cuda):
+                        print("Loss at %d is %f" % (steps_done, loss[0]))
+                    else:
+                        print("Loss at %d is %f" % (steps_done, loss.data[0]))
                     self.errors.append(loss.data[0])
 
                 # Copy to target network
