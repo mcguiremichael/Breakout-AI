@@ -34,7 +34,7 @@ IMG_DEPTH = 1
 # Stores state, action, next_state, reward, done
 
 class ReplayMemory():
-    def __init__(self, capacity = 5000):
+    def __init__(self, capacity = 7000):
         ''' Initializes empty replay memory '''
         self.capacity = capacity
         self.memory = []
@@ -169,8 +169,8 @@ class BreakoutAgent():
     '''
 
     def __init__(self, num_episodes = 5000, discount = 0.99, epsilon_max = 1.0,
-                epsilon_min = 0.05, epsilon_decay = 10e5, lr = 4e-5,
-                batch_size = 32, copy_frequency = 5):
+                epsilon_min = 0.05, epsilon_decay = 10e5, lr = 1e-4,
+                batch_size = 64, copy_frequency = 5):
         '''
         Instantiates DQN agent
 
@@ -427,7 +427,6 @@ class BreakoutAgent():
     def displayImage(self, image):
         plt.imshow(image)
         plt.show()
-        plt.pause(0.1)
 
     def plot_durations(self, durations):
         '''
@@ -470,7 +469,7 @@ class BreakoutAgent():
                     
     def convert_to_grayscale(self, state):
         gray_state = np.mean(state, axis=4).reshape((1, 1, 210, 160, 1))
-        return gray_state
+        return gray_state / 256.0
                     
 def Breakout_action_space():
     return range(4)
