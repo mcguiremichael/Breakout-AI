@@ -34,7 +34,7 @@ IMG_DEPTH = 1
 # Stores state, action, next_state, reward, done
 
 class ReplayMemory():
-    def __init__(self, capacity = 10000):
+    def __init__(self, capacity = 5000):
         ''' Initializes empty replay memory '''
         self.capacity = capacity
         self.memory = []
@@ -52,16 +52,13 @@ class ReplayMemory():
 
     def sample(self, batch_size):
         ''' Samples item from replay memory '''
-        if (random.random() > 0.7 and len(self.sensitive_indices) > batch_size):
-            indices = random.sample(self.sensitive_indices, batch_size)
-        else:
-            indices = random.sample(range(len(self.memory)), batch_size)
+        #if (random.random() > 0.8 and len(self.sensitive_indices) > batch_size):
+        #    indices = random.sample(self.sensitive_indices, batch_size)
+        #else:
+        indices = random.sample(range(len(self.memory)), batch_size)
         samples = np.array([self.memory[i] for i in indices if i < len(self.memory)])
+       
         
-        #output = augment_sample(indices)
-        '''
-        IMPLEMENT SMART BATCH SELECTION HERE
-        '''
         return samples, indices
     
     def purge(self):
@@ -172,7 +169,7 @@ class BreakoutAgent():
     '''
 
     def __init__(self, num_episodes = 5000, discount = 0.99, epsilon_max = 1.0,
-                epsilon_min = 0.05, epsilon_decay = 10e5, lr = 1e-4,
+                epsilon_min = 0.05, epsilon_decay = 10e5, lr = 4e-5,
                 batch_size = 32, copy_frequency = 5):
         '''
         Instantiates DQN agent
@@ -199,7 +196,7 @@ class BreakoutAgent():
         self.epsilon_decay = epsilon_decay
         self.batch_size = batch_size
         self.copy_frequency = copy_frequency
-
+    
         # Instantiate replay memory, DQN, target DQN, optimizer, and gym environment
         self.memory = ReplayMemory()
         
@@ -340,7 +337,7 @@ class BreakoutAgent():
                 duration += 1
 
                 # Sample from replay memory if full memory is full capacity
-                if len(self.memory) >= self.batch_size and steps_done % self.train_freq == 0 and training:
+                if len(self.memory) >= 5 * self.batch_size and steps_done % self.train_freq == 0 and training:
                     #batch = self.memory.sample(self.batch_size)
                     #batch = Transition(*zip(*batch))
                     batch, indices = self.memory.sample(self.batch_size)
@@ -382,6 +379,7 @@ class BreakoutAgent():
                     indices = torch.nonzero(nonterminal_mask).squeeze(1)
                     preds = self.target_model(next_state_batch[indices])
                     # print(indices.shape, preds.shape)
+                    #print(next_state_values[nonterminal_mask].data.shape, torch.max(preds, dim = 1)[0].data.shape)
                     next_state_values[nonterminal_mask], _ = torch.max(
                                 preds,
                                 dim = 1)
