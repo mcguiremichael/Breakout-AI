@@ -34,7 +34,7 @@ IMG_DEPTH = 1
 # Stores state, action, next_state, reward, done
 
 class ReplayMemory():
-    def __init__(self, capacity = 7000):
+    def __init__(self, capacity = 60000):
         ''' Initializes empty replay memory '''
         self.capacity = capacity
         self.memory = []
@@ -103,7 +103,7 @@ class DQN(nn.Module):
         self.conv1 = nn.Conv3d(in_channels=1,
                                 out_channels=16,
                                 kernel_size=(8, 8, IMG_DEPTH*STATE_DEPTH),
-                                padding=(2, 2, 0),
+                                padding=(4, 4, 0),
                                 stride=4)
                                 
         self.conv2 = nn.Conv3d(in_channels=16, 
@@ -168,9 +168,9 @@ class BreakoutAgent():
     Defines cartpole agent
     '''
 
-    def __init__(self, num_episodes = 5000, discount = 0.99, epsilon_max = 1.0,
-                epsilon_min = 0.05, epsilon_decay = 10e5, lr = 1e-4,
-                batch_size = 64, copy_frequency = 5):
+    def __init__(self, num_episodes = 50000, discount = 0.99, epsilon_max = 1.0,
+                epsilon_min = 0.05, epsilon_decay = 10e6, lr = 2.5e-4,
+                batch_size = 32, copy_frequency = 500):
         '''
         Instantiates DQN agent
 
@@ -200,7 +200,8 @@ class BreakoutAgent():
         # Instantiate replay memory, DQN, target DQN, optimizer, and gym environment
         self.memory = ReplayMemory()
         
-        self.env = gym.make('Breakout-v0')
+        #self.env = gym.make('Breakout-v0')
+        self.env = gym.make('BreakoutDeterministic-v4')
         self.action_space = Breakout_action_space()
         self.obs_space = Breakout_obs_space()
         
@@ -210,8 +211,8 @@ class BreakoutAgent():
         if (self.use_cuda):
             self.model = torch.nn.DataParallel(self.model).cuda()
         self.target_model = copy.deepcopy(self.model)
-        self.optimizer = optim.Adam(self.model.parameters(), lr = lr)
-        self.train_freq = 10
+        self.optimizer = optim.SGD(self.model.parameters(), lr = lr, momentum=0.95)
+        self.train_freq = 4
         self.errors = []
  
     def select_action(self, state, steps_done = 0, explore = True):
@@ -229,10 +230,11 @@ class BreakoutAgent():
         if (steps_done > self.epsilon_decay):
             epsilon = 0.1
         else:
-            epsilon = self.epsilon_max - ((self.epsilon_max - self.epsilon_min) * steps_done) / self.epsilon_decay
+            epsilon = self.epsilon_max - ((self.epsilon_max - self.epsilon_min) * len(self.errors) / self.epsilon_decay
 
         # With prob 1 - epsilon choose action to max Q
         if sample > epsilon or not explore:
+            state = state / 256.0
             if (self.use_cuda):
                 state = torch.from_numpy(state).type(torch.FloatTensor).cuda()
             else:
@@ -342,8 +344,8 @@ class BreakoutAgent():
                     #batch = Transition(*zip(*batch))
                     batch, indices = self.memory.sample(self.batch_size)
                     batch = Transition(*zip(*batch))
-                    x = self.group_augment(batch.state, indices=indices)
-                    y = self.group_augment(batch.next_state, isnext=True, cs=batch.state, indices=indices)
+                    x = self.group_augment(batch.state, indices=indices) / 256.0
+                    y = self.group_augment(batch.next_state, isnext=True, cs=batch.state, indices=indices) / 256.0
                     
                     #self.displayStack(x[0,:,:,:,:])
                     if (self.use_cuda):
@@ -468,8 +470,8 @@ class BreakoutAgent():
                     break
                     
     def convert_to_grayscale(self, state):
-        gray_state = np.mean(state, axis=4).reshape((1, 1, 210, 160, 1))
-        return gray_state / 256.0
+        gray_state = np.mean(state, axis=4).reshape((1, 1, 210, 160, 1)).astype(np.uint8)
+        return gray_state
                     
 def Breakout_action_space():
     return range(4)
