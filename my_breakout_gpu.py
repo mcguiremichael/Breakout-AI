@@ -169,7 +169,7 @@ class BreakoutAgent():
     '''
 
     def __init__(self, num_episodes = 50000, discount = 0.99, epsilon_max = 1.0,
-                epsilon_min = 0.05, epsilon_decay = 10e6, lr = 2.5e-4,
+                epsilon_min = 0.05, epsilon_decay = 5 * 10e5, lr = 2.5e-4,
                 batch_size = 32, copy_frequency = 500):
         '''
         Instantiates DQN agent
@@ -230,7 +230,7 @@ class BreakoutAgent():
         if (steps_done > self.epsilon_decay):
             epsilon = 0.1
         else:
-            epsilon = self.epsilon_max - ((self.epsilon_max - self.epsilon_min) * len(self.errors) / self.epsilon_decay
+            epsilon = self.epsilon_max - (self.epsilon_max - self.epsilon_min) * len(self.errors) / self.epsilon_decay
 
         # With prob 1 - epsilon choose action to max Q
         if sample > epsilon or not explore:
@@ -303,7 +303,8 @@ class BreakoutAgent():
         durations = []
         if (training):
             num_episodes = self.num_episodes
-        for ep in range(num_episodes):
+        #for ep in range(num_episodes):
+        while (steps_done < 10 * self.epsilon_decay):
             state = self.env.reset()
             state = state.reshape((1, 1, 210, 160, 3))
             state = self.convert_to_grayscale(state)
@@ -397,10 +398,11 @@ class BreakoutAgent():
                     self.optimizer.step()
                     
                     if (self.use_cuda):
-                        print("Loss at %d is %f" % (steps_done, loss[0]))
+                        l = loss[0]
                     else:
-                        print("Loss at %d is %f" % (steps_done, loss.data[0]))
-                    self.errors.append(loss.data[0])
+                        l = loss.data[0]
+                    self.errors.append(l)
+                    self.print_statistics(len(self.errors), l)
 
                 # Copy to target network
                 # Most likely unneeded for cart pole, but targets networks are used
@@ -417,6 +419,9 @@ class BreakoutAgent():
                 
                 if (r != 0):
                     self.memory.sensitive_indices.append(steps_done)
+                    
+    def print_statistics(self, iter_num, loss):
+        print("Loss at iteration %d is %f" % (iter_num, loss, self.))
 
     def displayStack(self, state):
         state = state.reshape((210, 160, STATE_DEPTH))
