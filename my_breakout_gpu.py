@@ -421,7 +421,7 @@ class BreakoutAgent():
                     self.memory.sensitive_indices.append(steps_done)
                     
     def print_statistics(self, iter_num, loss):
-        print("Loss at iteration %d is %f" % (iter_num, loss, self.))
+        print("Loss at iteration %d is %f" % (iter_num, loss))
 
     def displayStack(self, state):
         state = state.reshape((210, 160, STATE_DEPTH))
