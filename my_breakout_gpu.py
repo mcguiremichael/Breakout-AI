@@ -34,7 +34,7 @@ IMG_DEPTH = 1
 # Stores state, action, next_state, reward, done
 
 class ReplayMemory():
-    def __init__(self, capacity = 300000):
+    def __init__(self, capacity = 150000):
         ''' Initializes empty replay memory '''
         self.capacity = capacity
         self.memory = []
@@ -340,7 +340,7 @@ class BreakoutAgent():
                 duration += 1
 
                 # Sample from replay memory if full memory is full capacity
-                if len(self.memory) >= 5 * self.batch_size and steps_done % self.train_freq == 0 and training:
+                if len(self.memory) >= 50000 and steps_done % self.train_freq == 0 and training:
                     #batch = self.memory.sample(self.batch_size)
                     #batch = Transition(*zip(*batch))
                     batch, indices = self.memory.sample(self.batch_size)
