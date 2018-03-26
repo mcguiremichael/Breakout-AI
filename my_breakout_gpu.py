@@ -121,8 +121,8 @@ class DQN(nn.Module):
 
         for l in range(self.num_layers):
             self.lin_layers.append(nn.Linear(sizes[l], sizes[l+1]))
-            self.lin_layers[-1].weight.data.uniform_(-0.01, 0.01)
-            self.lin_layers[-1].bias.data.uniform_(-0.01, 0.01)
+            #self.lin_layers[-1].weight.data.uniform_(-0.01, 0.01)
+            #self.lin_layers[-1].bias.data.uniform_(-0.01, 0.01)
 
     def conv_output(self, shape):
         inp = Variable(torch.rand(1, *shape))
