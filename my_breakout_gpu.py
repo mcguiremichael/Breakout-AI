@@ -34,7 +34,7 @@ IMG_DEPTH = 1
 # Stores state, action, next_state, reward, done
 
 class ReplayMemory():
-    def __init__(self, capacity = 60000):
+    def __init__(self, capacity = 300000):
         ''' Initializes empty replay memory '''
         self.capacity = capacity
         self.memory = []
@@ -169,7 +169,7 @@ class BreakoutAgent():
     '''
 
     def __init__(self, num_episodes = 50000, discount = 0.99, epsilon_max = 1.0,
-                epsilon_min = 0.05, epsilon_decay = 5 * 10e5, lr = 2.5e-4,
+                epsilon_min = 0.05, epsilon_decay = 10e6, lr = 2.5e-4,
                 batch_size = 32, copy_frequency = 500):
         '''
         Instantiates DQN agent
