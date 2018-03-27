@@ -34,7 +34,7 @@ IMG_DEPTH = 1
 # Stores state, action, next_state, reward, done
 
 class ReplayMemory():
-    def __init__(self, capacity = 60000):
+    def __init__(self, capacity = 150000):
         ''' Initializes empty replay memory '''
         self.capacity = capacity
         self.memory = []
@@ -316,9 +316,10 @@ class BreakoutAgent():
             self.memory.done_indices.append(steps_done)
             print("Beginning game %d" % len(self.memory.done_indices))
             #self.memory.purge()
+            t1 = time.time()
             while not done:
                 # Select action and take step
-                self.env.render()
+                #self.env.render()
                 #self.memory.states = np.concatenate([self.memory.states, state], 0)
                 aug_state = self.augment(state)
                 action = self.select_action(aug_state, steps_done)
@@ -426,6 +427,8 @@ class BreakoutAgent():
                 
                 if (r != 0):
                     self.memory.sensitive_indices.append(steps_done)
+            print(time.time() - t1)        
+            
                     
     def print_statistics(self, iter_num, loss):
         print("Loss at iteration %d is %f" % (iter_num, loss))
@@ -505,6 +508,8 @@ def main():
     cpa = BreakoutAgent()
     print(cpa.model)
     cpa.train()
+    cpa.model.save_state_dict('mytraining.pt')
+    # cpa.model.load_state_dict(torch.load('mytraining.pt'))
     cpa.train(training=False, num_episodes=100000)
 
 if __name__ == '__main__':
