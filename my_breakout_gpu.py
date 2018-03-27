@@ -121,8 +121,8 @@ class DQN(nn.Module):
 
         for l in range(self.num_layers):
             self.lin_layers.append(nn.Linear(sizes[l], sizes[l+1]))
-            #self.lin_layers[-1].weight.data.uniform_(-0.01, 0.01)
-            #self.lin_layers[-1].bias.data.uniform_(-0.01, 0.01)
+            self.lin_layers[-1].weight.data.uniform_(-0.01, 0.01)
+            self.lin_layers[-1].bias.data.uniform_(-0.01, 0.01)
 
     def conv_output(self, shape):
         inp = Variable(torch.rand(1, *shape))
@@ -301,6 +301,7 @@ class BreakoutAgent():
         '''
         steps_done = 0
         durations = []
+        scores = 0
         if (training):
             num_episodes = self.num_episodes
         #for ep in range(num_episodes):
@@ -310,6 +311,7 @@ class BreakoutAgent():
             state = self.convert_to_grayscale(state)
             done = False
             duration = 0
+            curr_score = 0
             self.memory.done_indices.append(steps_done)
             print("Beginning game %d" % len(self.memory.done_indices))
             #self.memory.purge()
@@ -338,6 +340,8 @@ class BreakoutAgent():
                 steps_done += 1
                 state = next_state
                 duration += 1
+                curr_score += r
+
 
                 # Sample from replay memory if full memory is full capacity
                 if len(self.memory) >= 50000 and steps_done % self.train_freq == 0 and training:
@@ -413,8 +417,10 @@ class BreakoutAgent():
                 # Plot durations
                 if done and show_plot and len(self.errors) > 0:
                     durations.append(duration)
-                    self.plot_durations(durations)
+                    scores.append(curr_score)
+                    self.plot_scores(scores)
                     duration = 0
+                    curr_score = 0
                     self.env.reset()
                 
                 if (r != 0):
@@ -449,6 +455,16 @@ class BreakoutAgent():
         plt.xlabel('Iteration')
         plt.ylabel('Duration')
         plt.plot(durations_a)
+        plt.pause(0.001)  # pause a bit so that plots are updated
+        
+    def plot_scores(self, scores):
+        plt.figure(1)
+        plt.clf()
+        scores_a = np.array(scores)
+        plt.title('Training...')
+        plt.xlabel('Iteration')
+        plt.ylabel('Score')
+        plt.plot(scores_a)
         plt.pause(0.001)  # pause a bit so that plots are updated
 
     def run_and_visualize(self):
