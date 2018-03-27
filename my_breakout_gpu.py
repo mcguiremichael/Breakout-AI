@@ -34,7 +34,7 @@ IMG_DEPTH = 1
 # Stores state, action, next_state, reward, done
 
 class ReplayMemory():
-    def __init__(self, capacity = 150000):
+    def __init__(self, capacity = 60000):
         ''' Initializes empty replay memory '''
         self.capacity = capacity
         self.memory = []
@@ -214,6 +214,7 @@ class BreakoutAgent():
         self.optimizer = optim.SGD(self.model.parameters(), lr = lr, momentum=0.95)
         self.train_freq = 4
         self.errors = []
+        self.replay_mem_size = self.memory.capacity
  
     def select_action(self, state, steps_done = 0, explore = True):
         '''
@@ -301,7 +302,7 @@ class BreakoutAgent():
         '''
         steps_done = 0
         durations = []
-        scores = 0
+        scores = []
         if (training):
             num_episodes = self.num_episodes
         #for ep in range(num_episodes):
@@ -344,7 +345,7 @@ class BreakoutAgent():
 
 
                 # Sample from replay memory if full memory is full capacity
-                if len(self.memory) >= 50000 and steps_done % self.train_freq == 0 and training:
+                if len(self.memory) >= self.replay_mem_size and steps_done % self.train_freq == 0 and training:
                     #batch = self.memory.sample(self.batch_size)
                     #batch = Transition(*zip(*batch))
                     batch, indices = self.memory.sample(self.batch_size)
@@ -452,7 +453,7 @@ class BreakoutAgent():
         plt.clf()
         durations_a = np.array(durations)
         plt.title('Training...')
-        plt.xlabel('Iteration')
+        plt.xlabel('Game Number')
         plt.ylabel('Duration')
         plt.plot(durations_a)
         plt.pause(0.001)  # pause a bit so that plots are updated
@@ -462,7 +463,7 @@ class BreakoutAgent():
         plt.clf()
         scores_a = np.array(scores)
         plt.title('Training...')
-        plt.xlabel('Iteration')
+        plt.xlabel('Game Number')
         plt.ylabel('Score')
         plt.plot(scores_a)
         plt.pause(0.001)  # pause a bit so that plots are updated
