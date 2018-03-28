@@ -34,7 +34,7 @@ IMG_DEPTH = 1
 # Stores state, action, next_state, reward, done
 
 class ReplayMemory():
-    def __init__(self, capacity = 150000):
+    def __init__(self, capacity = 200000):
         ''' Initializes empty replay memory '''
         self.capacity = capacity
         self.memory = []
@@ -187,7 +187,7 @@ class BreakoutAgent():
         '''
         # Save relevant hyperparameters
         self.use_cuda = torch.cuda.is_available()
-        
+        #self.use_cuda = False
         
         self.num_episodes = num_episodes
         self.discount = discount
@@ -227,12 +227,13 @@ class BreakoutAgent():
         sample = random.random()
         #epsilon = self.epsilon_min + (self.epsilon_max - self.epsilon_min) * \
         #    math.exp(-1. * steps_done / self.epsilon_decay)
-            
+        
         if (steps_done > self.epsilon_decay):
             epsilon = 0.1
         else:
             epsilon = self.epsilon_max - (self.epsilon_max - self.epsilon_min) * len(self.errors) / self.epsilon_decay
-
+        
+        #epsilon = 0.0
         # With prob 1 - epsilon choose action to max Q
         if sample > epsilon or not explore:
             state = state / 256.0
@@ -240,6 +241,8 @@ class BreakoutAgent():
                 state = torch.from_numpy(state).type(torch.FloatTensor).cuda()
             else:
                 state = torch.from_numpy(state).type(torch.FloatTensor)
+                
+            print(state.shape)
             maxQ, argmax = torch.max(self.model(Variable(state, volatile = True)), dim = 1)
             return argmax.data[0]
 
@@ -247,7 +250,7 @@ class BreakoutAgent():
         else:
             return random.randint(0, len(self.action_space)-1)
         
-    def augment(self, curr_state, isnext=False, cs=None, ind=-1):
+    def augment(self, curr_state, isnext=False, cs=None, ind=-1, location=None):
         if (STATE_DEPTH == 1):
             return curr_state
         s = curr_state.shape
@@ -255,27 +258,37 @@ class BreakoutAgent():
             index = len(self.memory)-1
         else:
             index = ind-1
+        
+        if (type(location) != type(None)):
+            output = location
+        else:
+            output = np.zeros((1, 1, s[2], s[3], IMG_DEPTH*STATE_DEPTH))
+        output[:,:,:,:,range(IMG_DEPTH)] = curr_state
+        i = 1
+            
         counter = STATE_DEPTH-1
-        output = curr_state
         previous = []
         past_start = False
         if (isnext):
-            curr_state = np.concatenate([curr_state, cs], 4)
+            #curr_state = np.concatenate([curr_state, cs], 4)
+            output[:,:,:,:,range(i*IMG_DEPTH, (i+1)*IMG_DEPTH)] = cs
+            i += 1
             counter -= 1
         while (counter > 0):
             if (index < 0 or index >= len(self.memory)):
-                curr_state = np.concatenate([curr_state, np.zeros((1, 1, s[2], s[3], IMG_DEPTH * counter))], 4)
+                #curr_state = np.concatenate([curr_state, np.zeros((1, 1, s[2], s[3], IMG_DEPTH * counter))], 4)
                 break
             prev = self.memory.memory[index]
             
             if (not prev[4][0]):
-                curr_state = np.concatenate([curr_state, np.zeros((1, 1, s[2], s[3], IMG_DEPTH * counter))], 4)
+                #curr_state = np.concatenate([curr_state, np.zeros((1, 1, s[2], s[3], IMG_DEPTH * counter))], 4)
                 break
             else:
-                curr_state = np.concatenate([curr_state, prev[0]], 4);
+                #curr_state = np.concatenate([curr_state, prev[0]], 4);
+                output[:,:,:,:,range(i*IMG_DEPTH, (i+1)*IMG_DEPTH)] = prev[0]
             index -= 1
             counter -= 1
-        return curr_state
+        return output
         
     def group_augment(self, states, isnext=False, cs=None, indices=[]):
         if (STATE_DEPTH == 1):
@@ -287,10 +300,10 @@ class BreakoutAgent():
         outputs = np.zeros((length, 1, s[2], s[3], IMG_DEPTH * STATE_DEPTH))
         if (not isnext):
             for i in range(len(states)):
-                outputs[i,:,:,:,:] = self.augment(states[i], ind=indices[i])
+                outputs[i,:,:,:,:] = self.augment(states[i], ind=indices[i], location=outputs[[i],:,:,:,:])
         else:
             for i in range(len(states)):
-                outputs[i,:,:,:,:] = self.augment(states[i], isnext=True, cs=cs[i], ind=indices[i])
+                outputs[i,:,:,:,:] = self.augment(states[i], isnext=True, cs=cs[i], ind=indices[i], location=outputs[[i],:,:,:,:])
         return outputs
 
     def train(self, show_plot = True, training=True, num_episodes=1000):
@@ -316,10 +329,9 @@ class BreakoutAgent():
             self.memory.done_indices.append(steps_done)
             print("Beginning game %d" % len(self.memory.done_indices))
             #self.memory.purge()
-            t1 = time.time()
             while not done:
                 # Select action and take step
-                #self.env.render()
+                self.env.render()
                 #self.memory.states = np.concatenate([self.memory.states, state], 0)
                 aug_state = self.augment(state)
                 action = self.select_action(aug_state, steps_done)
@@ -427,7 +439,6 @@ class BreakoutAgent():
                 
                 if (r != 0):
                     self.memory.sensitive_indices.append(steps_done)
-            print(time.time() - t1)        
             
                     
     def print_statistics(self, iter_num, loss):
