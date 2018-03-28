@@ -242,7 +242,6 @@ class BreakoutAgent():
             else:
                 state = torch.from_numpy(state).type(torch.FloatTensor)
                 
-            print(state.shape)
             maxQ, argmax = torch.max(self.model(Variable(state, volatile = True)), dim = 1)
             return argmax.data[0]
 
@@ -286,6 +285,8 @@ class BreakoutAgent():
             else:
                 #curr_state = np.concatenate([curr_state, prev[0]], 4);
                 output[:,:,:,:,range(i*IMG_DEPTH, (i+1)*IMG_DEPTH)] = prev[0]
+                
+            i += 1
             index -= 1
             counter -= 1
         return output
@@ -358,7 +359,7 @@ class BreakoutAgent():
 
 
                 # Sample from replay memory if full memory is full capacity
-                if len(self.memory) >= self.replay_mem_size and steps_done % self.train_freq == 0 and training:
+                if len(self.memory) >= 50000 and steps_done % self.train_freq == 0 and training:
                     #batch = self.memory.sample(self.batch_size)
                     #batch = Transition(*zip(*batch))
                     batch, indices = self.memory.sample(self.batch_size)
