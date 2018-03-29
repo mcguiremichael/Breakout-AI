@@ -34,7 +34,7 @@ IMG_DEPTH = 1
 # Stores state, action, next_state, reward, done
 
 class ReplayMemory():
-    def __init__(self, capacity = 200000):
+    def __init__(self, capacity = 600000):
         ''' Initializes empty replay memory '''
         self.capacity = capacity
         self.memory = []
@@ -99,7 +99,7 @@ class DQN(nn.Module):
         '''
         super(DQN, self).__init__()
         self.hidden_activation = hidden_activation
-        self.in_shape = (1, 210, 160, IMG_DEPTH*STATE_DEPTH)        
+        self.in_shape = (1, 105, 80, IMG_DEPTH*STATE_DEPTH)        
         self.conv1 = nn.Conv3d(in_channels=1,
                                 out_channels=16,
                                 kernel_size=(8, 8, IMG_DEPTH*STATE_DEPTH),
@@ -132,9 +132,9 @@ class DQN(nn.Module):
 
     def forward_features(self, x):
         x = self.hidden_activation(self.conv1(x))
-        #x = F.max_pool3d(x, (2, 2, 1), (2, 2, 1))
+        x = F.max_pool3d(x, (2, 2, 1), (2, 2, 1))
         x = self.hidden_activation(self.conv2(x))
-        #x = F.max_pool3d(x, (2, 2, 1), (2, 2, 1))
+        x = F.max_pool3d(x, (2, 2, 1), (2, 2, 1))
         return x
 
     def forward(self, x):
@@ -214,6 +214,7 @@ class BreakoutAgent():
         self.train_freq = 4
         self.errors = []
         self.replay_mem_size = self.memory.capacity
+        self.mem_init_size = 50000
  
     def select_action(self, state, steps_done = 0, explore = True):
         '''
@@ -230,8 +231,7 @@ class BreakoutAgent():
         if (steps_done > self.epsilon_decay):
             epsilon = 0.1
         else:
-            epsilon = self.epsilon_max - (self.epsilon_max - self.epsilon_min) * len(self.errors) / self.epsilon_decay
-        
+            epsilon = self.epsilon_max - (self.epsilon_max - self.epsilon_min) * steps_done / self.epsilon_decay
         #epsilon = 0.0
         # With prob 1 - epsilon choose action to max Q
         if sample > epsilon or not explore:
@@ -351,14 +351,15 @@ class BreakoutAgent():
 
                 # Remember s, a, r, s', d
                 self.memory.push((state, action, next_state, reward, nonterminal))
-                steps_done += 1
+                if (len(self.memory) > self.mem_init_size):
+                    steps_done += 1
                 state = next_state
                 duration += 1
                 curr_score += r
 
 
                 # Sample from replay memory if full memory is full capacity
-                if len(self.memory) >= 50000 and steps_done % self.train_freq == 0 and training:
+                if len(self.memory) >= self.mem_init_size and steps_done % self.train_freq == 0 and training:
                     #batch = self.memory.sample(self.batch_size)
                     #batch = Transition(*zip(*batch))
                     batch, indices = self.memory.sample(self.batch_size)
@@ -429,7 +430,7 @@ class BreakoutAgent():
                     self.target_model = copy.deepcopy(self.model)
 
                 # Plot durations
-                if done and show_plot and len(self.errors) > 0:
+                if done and show_plot and len(self.errors) > 0 and len(durations) % 10 == 5:
                     durations.append(duration)
                     scores.append(curr_score)
                     self.plot_scores(scores)
