@@ -131,7 +131,6 @@ class DQN(nn.Module):
         return n_size
 
     def forward_features(self, x):
-        x = F.max_pool3d(x, (2, 2, 1), (2, 2, 1))
         x = self.hidden_activation(self.conv1(x))
         #x = F.max_pool3d(x, (2, 2, 1), (2, 2, 1))
         x = self.hidden_activation(self.conv2(x))
@@ -323,7 +322,7 @@ class BreakoutAgent():
         while (steps_done < 10 * self.epsilon_decay):
             state = self.env.reset()
             state = state.reshape((1, 1, 210, 160, 3))
-            state = self.convert_to_grayscale(state)
+            state = self.down_sample(self.convert_to_grayscale(state))
             done = False
             duration = 0
             curr_score = 0
@@ -345,7 +344,7 @@ class BreakoutAgent():
 
                 # Convert s, a, r, s', d to tensors
                 next_state = next_state.reshape((1, 1, 210, 160, 3))
-                next_state = self.convert_to_grayscale(next_state)
+                next_state = self.down_sample(self.convert_to_grayscale(next_state))
                 action = torch.LongTensor([[action]])
                 reward = torch.FloatTensor([reward])
                 nonterminal = torch.ByteTensor([not done])
@@ -509,6 +508,9 @@ class BreakoutAgent():
     def convert_to_grayscale(self, state):
         gray_state = np.mean(state, axis=4).reshape((1, 1, 210, 160, 1)).astype(np.uint8)
         return gray_state
+        
+    def down_sample(self, img):
+        return img[:, :, ::2, ::2, :]
                     
 def Breakout_action_space():
     return range(4)
