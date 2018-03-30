@@ -30,11 +30,11 @@ STATE_DEPTH = 4
 IMG_DEPTH = 1
 
 ######################################################################
-# Replay Memory
+# Replay Memory object has no attribute 'save_state_dict'
 # Stores state, action, next_state, reward, done
 
 class ReplayMemory():
-    def __init__(self, capacity = 600000):
+    def __init__(self, capacity = 200000):
         ''' Initializes empty replay memory '''
         self.capacity = capacity
         self.memory = []
@@ -132,9 +132,9 @@ class DQN(nn.Module):
 
     def forward_features(self, x):
         x = self.hidden_activation(self.conv1(x))
-        x = F.max_pool3d(x, (2, 2, 1), (2, 2, 1))
+        #x = F.max_pool3d(x, (2, 2, 1), (2, 2, 1))
         x = self.hidden_activation(self.conv2(x))
-        x = F.max_pool3d(x, (2, 2, 1), (2, 2, 1))
+        #x = F.max_pool3d(x, (2, 2, 1), (2, 2, 1))
         return x
 
     def forward(self, x):
@@ -430,7 +430,7 @@ class BreakoutAgent():
                     self.target_model = copy.deepcopy(self.model)
 
                 # Plot durations
-                if done and show_plot and len(self.errors) > 0 and len(durations) % 10 == 5:
+                if done and show_plot and len(self.errors) > 0:
                     durations.append(duration)
                     scores.append(curr_score)
                     self.plot_scores(scores)
@@ -440,7 +440,10 @@ class BreakoutAgent():
                 
                 if (r != 0):
                     self.memory.sensitive_indices.append(steps_done)
-            
+                    
+                if (len(self.errors) % 10000 == 0):
+                    #self.model.module.save_state_dict('mytraining.pt')
+                    torch.save(self.model.module.state_dict(), 'mytraining.pt')
                     
     def print_statistics(self, iter_num, loss):
         print("Loss at iteration %d is %f" % (iter_num, loss))
