@@ -28,41 +28,62 @@ Transition = namedtuple('Transition',
 
 STATE_DEPTH = 4
 IMG_DEPTH = 1
+FRAME_SHAPE = (1, 1, 105, 80, IMG_DEPTH)
 
+class episode():
+    def __init__(self):
+        self.state = np.zeros(FRAME_SHAPE, dtype=np.uint8)
+        self.action = -1
+        self.next_state = None
+        self.reward = -1
+        self.nonterminal = False
 ######################################################################
 # Replay Memory object has no attribute 'save_state_dict'
 # Stores state, action, next_state, reward, done
 
 class ReplayMemory():
-    def __init__(self, capacity = 200000):
+    def __init__(self, capacity = 1000000):
         ''' Initializes empty replay memory '''
         self.capacity = capacity
-        self.memory = []
+        self.memory = [episode() for i in range(capacity)]
         self.position = 0
+        self.real_capacity = 0
         self.done_indices = []
         self.sensitive_indices = []
 
     def push(self, item):
         ''' Stores item in replay memory '''
+        """
         if len(self.memory) < self.capacity:
             self.memory.append(item)
         else:
             self.memory[self.position] = item
             self.position = (self.position + 1) % self.capacity
+        """
+        x = self.memory[self.position]
+        x.state[:,:,:,:,:] = item[0][:,:,:,:,:]
+        x.action = item[1]
+        x.reward = item[3]
+        x.nonterminal = item[4]
+        self.position = (self.position+1) % self.capacity
+        if (self.real_capacity < self.capacity):
+            self.real_capacity += 1
+        if (self.position % 1000 == 0):
+            gc.collect()
 
     def sample(self, batch_size):
         ''' Samples item from replay memory '''
         #if (random.random() > 0.8 and len(self.sensitive_indices) > batch_size):
         #    indices = random.sample(self.sensitive_indices, batch_size)
         #else:
-        indices = random.sample(range(len(self.memory)-1), batch_size)
-        samples = np.array([self.memory[i] for i in indices if i < len(self.memory)])
+        indices = random.sample(range(self.real_capacity-1), batch_size)
+        samples = np.array([(self.memory[i].state, self.memory[i].action, None, self.memory[i].reward, self.memory[i].nonterminal) for i in indices if i < self.real_capacity])
        
         
         return samples, indices
         
     def next_states(self, indices):
-        next_states = np.array([self.memory[i+1][0] for i in indices])
+        next_states = np.array([self.memory[i+1].state for i in indices])
         return next_states
     
     def purge(self):
@@ -184,7 +205,7 @@ class BreakoutAgent():
         copy_frequency : (int) copy after a certain number of time steps
         '''
         
-        # torch.backends.cudnn.enabled = False
+        #torch.backends.cudnn.enabled = False
         
         
         # Save relevant hyperparameters
@@ -239,7 +260,8 @@ class BreakoutAgent():
         #epsilon = 0.0
         # With prob 1 - epsilon choose action to max Q
         if sample > epsilon or not explore:
-            s = state / 256.0
+            aug_state = self.augment(state)
+            s = aug_state / 256.0
             if (self.use_cuda):
                 s = torch.from_numpy(s).type(torch.FloatTensor).cuda()
             else:
@@ -282,12 +304,12 @@ class BreakoutAgent():
                 break
             prev = self.memory.memory[index]
             
-            if (not prev[4][0]):
+            if (not prev.nonterminal):
                 #curr_state = np.concatenate([curr_state, np.zeros((1, 1, s[2], s[3], IMG_DEPTH * counter))], 4)
                 break
             else:
                 #curr_state = np.concatenate([curr_state, prev[0]], 4);
-                output[:,:,:,:,range(i*IMG_DEPTH, (i+1)*IMG_DEPTH)] = prev[0]
+                output[:,:,:,:,range(i*IMG_DEPTH, (i+1)*IMG_DEPTH)] = prev.state
                 
             i += 1
             index -= 1
@@ -336,8 +358,8 @@ class BreakoutAgent():
                 # Select action and take step
                 # self.env.render()
                 #self.memory.states = np.concatenate([self.memory.states, state], 0)
-                aug_state = self.augment(state)
-                action = self.select_action(aug_state, steps_done)
+                #aug_state = self.augment(state)
+                action = self.select_action(state, steps_done)
                 next_state, reward, done, _ = self.env.step(action)
 
                 if (done):
@@ -348,20 +370,21 @@ class BreakoutAgent():
                 # Convert s, a, r, s', d to tensors
                 next_state = next_state.reshape((1, 1, 210, 160, 3))
                 next_state = self.down_sample(self.convert_to_grayscale(next_state))
-                action = torch.LongTensor([[action]])
-                reward = torch.FloatTensor([reward])
-                nonterminal = torch.ByteTensor([not done])
+                action = action
+                reward = reward
+                nonterminal = not done
 
                 # Remember s, a, r, s', d
                 #self.memory.push((state, action, next_state, reward, nonterminal))
+                episode = ((state, action, None, reward, nonterminal))
                 self.memory.push((state, action, None, reward, nonterminal))
                 steps_done += 1
                 state = next_state
                 duration += 1
                 curr_score += r
 
-
                 # Sample from replay memory if full memory is full capacity
+                
                 if len(self.memory) >= self.mem_init_size and steps_done % self.train_freq == 0 and training:
                     #batch = self.memory.sample(self.batch_size)
                     #batch = Transition(*zip(*batch))
@@ -374,10 +397,14 @@ class BreakoutAgent():
                     #self.displayStack(x[0,:,:,:,:])
                     if (self.use_cuda):
                         state_batch = Variable(torch.from_numpy(x).type(torch.FloatTensor)).cuda()
-                        action_batch = Variable(torch.cat(batch.action)).cuda()
+                        actions = np.array(batch.action).reshape((self.batch_size, 1))
+                        action_batch = Variable(torch.from_numpy(actions)).cuda()
                         next_state_batch = Variable(torch.from_numpy(y).type(torch.FloatTensor), volatile = True).cuda()
-                        reward_batch = Variable(torch.cat(batch.reward)).cuda()
-                        nonterminal_mask = torch.cat(batch.nonterminal).cuda()
+                        rewards = np.array(batch.reward)
+                        reward_batch = Variable(torch.from_numpy(rewards).type(torch.FloatTensor)).cuda()
+                        
+                        nonterminal = np.array(batch.nonterminal, dtype=np.uint8)
+                        nonterminal_mask = Variable(torch.from_numpy(nonterminal).type(torch.ByteTensor)).cuda()
 
                         # Predict Q(s, a) for s in batch
                         q_batch = self.model(state_batch).gather(1, action_batch)
@@ -402,8 +429,8 @@ class BreakoutAgent():
                         # else target = r(s, a) + discount * max_a Q(s', a) where s' is
                         # next state
                         next_state_values = Variable(torch.zeros(self.batch_size), volatile = True)
-                    indices = torch.nonzero(nonterminal_mask).squeeze(1)
-                    preds = self.target_model(next_state_batch[indices])
+                    action_indices = torch.nonzero(nonterminal_mask).squeeze(1)
+                    preds = self.target_model(next_state_batch[action_indices])
                     # print(indices.shape, preds.shape)
                     #print(next_state_values[nonterminal_mask].data.shape, torch.max(preds, dim = 1)[0].data.shape)
                     next_state_values[nonterminal_mask], _ = torch.max(
@@ -426,13 +453,13 @@ class BreakoutAgent():
                         l = loss.data[0]
                     self.errors.append(l)
                     self.print_statistics(len(self.errors), l)
-
+                
                 # Copy to target network
                 # Most likely unneeded for cart pole, but targets networks are used
                 # generally in DQN.
                 if len(self.errors) % self.copy_frequency == 0 and len(self.memory) >= self.mem_init_size:
                     self.target_model = copy.deepcopy(self.model)
-
+                
                 # Plot durations
                 if done and show_plot and len(self.errors) > 0:
                     durations.append(duration)
@@ -442,11 +469,12 @@ class BreakoutAgent():
                     curr_score = 0
                     self.env.reset()
                 
-                    
+                """
                 if (len(self.errors) % 1000 == 0):
                     #self.model.module.save_state_dict('mytraining.pt')
                     torch.save(self.model.module.state_dict(), 'mytraining.pt')
-                    
+                """
+
     def generate_replay_mem(self, mem_len):
         num_steps = 0
         num_games = 1
@@ -457,7 +485,6 @@ class BreakoutAgent():
             done = False
             print("Beginning game %d" % num_games)
             while not done:
-                
                 action = random.randint(0, 3)
                 next_state, reward, done, _ = self.env.step(action)
 
@@ -469,16 +496,18 @@ class BreakoutAgent():
                 # Convert s, a, r, s', d to tensors
                 next_state = next_state.reshape((1, 1, 210, 160, 3))
                 next_state = self.down_sample(self.convert_to_grayscale(next_state))
-                action = torch.LongTensor([[action]])
-                reward = torch.FloatTensor([reward])
-                nonterminal = torch.ByteTensor([not done])
+                action = action
+                reward = reward
+                nonterminal = not done
 
                 # Remember s, a, r, s', d
                 #self.memory.push((state, action, next_state, reward, nonterminal))
-                self.memory.push((state, action, None, reward, nonterminal))
-                
+                episode = (state, action, None, reward, nonterminal)
+                self.memory.push(episode)
                 state = next_state
                 num_steps += 1
+                
+                
             num_games += 1
                     
     def next_states(self, indices):
@@ -548,11 +577,12 @@ class BreakoutAgent():
                     break
                     
     def convert_to_grayscale(self, state):
-        gray_state = np.mean(state, axis=4).reshape((1, 1, 210, 160, 1)).astype(np.uint8)
-        return gray_state
+        state = np.mean(state, axis=4).reshape((1, 1, 210, 160, 1)).astype(np.uint8)
+        return state
         
     def down_sample(self, img):
-        return img[:, :, ::2, ::2, :]
+        img = img[:, :, ::2, ::2, :]
+        return img
                     
 def Breakout_action_space():
     return range(4)
