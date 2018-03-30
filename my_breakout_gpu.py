@@ -1,8 +1,6 @@
 """
-
 This code borrows heavily from rhiga2's OpenAI gym implementation of Cartpole,
 at https://github.com/rhiga2/cartpole_dqn
-
 """
 
 
@@ -30,7 +28,7 @@ STATE_DEPTH = 4
 IMG_DEPTH = 1
 
 ######################################################################
-# Replay Memory
+# Replay Memory object has no attribute 'save_state_dict'
 # Stores state, action, next_state, reward, done
 
 class ReplayMemory():
@@ -55,11 +53,15 @@ class ReplayMemory():
         #if (random.random() > 0.8 and len(self.sensitive_indices) > batch_size):
         #    indices = random.sample(self.sensitive_indices, batch_size)
         #else:
-        indices = random.sample(range(len(self.memory)), batch_size)
+        indices = random.sample(range(len(self.memory)-1), batch_size)
         samples = np.array([self.memory[i] for i in indices if i < len(self.memory)])
        
         
         return samples, indices
+        
+    def next_states(self, indices):
+        next_states = np.array([self.memory[i+1][0] for i in indices])
+        return next_states
     
     def purge(self):
         if (len(self.memory) > 20000):
@@ -88,18 +90,16 @@ class DQN(nn.Module):
                     hidden_activation = F.relu):
         '''
         Instantiates DQN
-
         Position Arguments:
         input_size : (int) size of state tuple
         output_size : (int) size of discrete actions
         hidden_sizes : (list of ints) sizes of hidden layer outputs
-
         Keyword Arguments:
         hidden_activation : (torch functional) nonlinear activations
         '''
         super(DQN, self).__init__()
         self.hidden_activation = hidden_activation
-        self.in_shape = (1, 210, 160, IMG_DEPTH*STATE_DEPTH)        
+        self.in_shape = (1, 105, 80, IMG_DEPTH*STATE_DEPTH)        
         self.conv1 = nn.Conv3d(in_channels=1,
                                 out_channels=16,
                                 kernel_size=(8, 8, IMG_DEPTH*STATE_DEPTH),
@@ -131,7 +131,6 @@ class DQN(nn.Module):
         return n_size
 
     def forward_features(self, x):
-        x = F.max_pool3d(x, (2, 2, 1), (2, 2, 1))
         x = self.hidden_activation(self.conv1(x))
         #x = F.max_pool3d(x, (2, 2, 1), (2, 2, 1))
         x = self.hidden_activation(self.conv2(x))
@@ -142,10 +141,8 @@ class DQN(nn.Module):
         '''
         Given batch of states outputs Q(s, a) for states s in batch for all
         actions a.
-
         Positional Arguments:
         x : (Variable FloatTensor) tensor of states of size (batch_size, input_size)
-
         Return:
         q : (Variable FloatTensor) tensor of Q values of size (batch_size, output_size)
         '''
@@ -173,7 +170,6 @@ class BreakoutAgent():
                 batch_size = 32, copy_frequency = 500):
         '''
         Instantiates DQN agent
-
         Keyword Arguments:
         num_episodes : (int) number of episodes to run agent
         discount: (float) discount factor (should be <= 1)
@@ -215,12 +211,12 @@ class BreakoutAgent():
         self.train_freq = 4
         self.errors = []
         self.replay_mem_size = self.memory.capacity
+        self.mem_init_size = 50000
  
     def select_action(self, state, steps_done = 0, explore = True):
         '''
         Given state returns an action by either randomly choosing an action or
         choosing an action that maximizes the expected reward (Q(s, a)).
-
         Return:
         action : (int) action choosen from state
         '''
@@ -231,8 +227,7 @@ class BreakoutAgent():
         if (steps_done > self.epsilon_decay):
             epsilon = 0.1
         else:
-            epsilon = self.epsilon_max - (self.epsilon_max - self.epsilon_min) * len(self.errors) / self.epsilon_decay
-        
+            epsilon = self.epsilon_max - (self.epsilon_max - self.epsilon_min) * steps_done / self.epsilon_decay
         #epsilon = 0.0
         # With prob 1 - epsilon choose action to max Q
         if sample > epsilon or not explore:
@@ -242,7 +237,6 @@ class BreakoutAgent():
             else:
                 state = torch.from_numpy(state).type(torch.FloatTensor)
                 
-            print(state.shape)
             maxQ, argmax = torch.max(self.model(Variable(state, volatile = True)), dim = 1)
             return argmax.data[0]
 
@@ -286,6 +280,8 @@ class BreakoutAgent():
             else:
                 #curr_state = np.concatenate([curr_state, prev[0]], 4);
                 output[:,:,:,:,range(i*IMG_DEPTH, (i+1)*IMG_DEPTH)] = prev[0]
+                
+            i += 1
             index -= 1
             counter -= 1
         return output
@@ -309,7 +305,6 @@ class BreakoutAgent():
     def train(self, show_plot = True, training=True, num_episodes=1000):
         '''
         Trains the cartpole agent.
-
         Keyword Arguments:
         show_plot : (boolean) indicates whether duration curve is plotted
         '''
@@ -322,7 +317,7 @@ class BreakoutAgent():
         while (steps_done < 10 * self.epsilon_decay):
             state = self.env.reset()
             state = state.reshape((1, 1, 210, 160, 3))
-            state = self.convert_to_grayscale(state)
+            state = self.down_sample(self.convert_to_grayscale(state))
             done = False
             duration = 0
             curr_score = 0
@@ -344,28 +339,31 @@ class BreakoutAgent():
 
                 # Convert s, a, r, s', d to tensors
                 next_state = next_state.reshape((1, 1, 210, 160, 3))
-                next_state = self.convert_to_grayscale(next_state)
+                next_state = self.down_sample(self.convert_to_grayscale(next_state))
                 action = torch.LongTensor([[action]])
                 reward = torch.FloatTensor([reward])
                 nonterminal = torch.ByteTensor([not done])
 
                 # Remember s, a, r, s', d
-                self.memory.push((state, action, next_state, reward, nonterminal))
-                steps_done += 1
+                #self.memory.push((state, action, next_state, reward, nonterminal))
+                self.memory.push((state, action, None, reward, nonterminal))
+                if (len(self.memory) > self.mem_init_size):
+                    steps_done += 1
                 state = next_state
                 duration += 1
                 curr_score += r
 
 
                 # Sample from replay memory if full memory is full capacity
-                if len(self.memory) >= self.replay_mem_size and steps_done % self.train_freq == 0 and training:
+                if len(self.memory) >= self.mem_init_size and steps_done % self.train_freq == 0 and training:
                     #batch = self.memory.sample(self.batch_size)
                     #batch = Transition(*zip(*batch))
                     batch, indices = self.memory.sample(self.batch_size)
                     batch = Transition(*zip(*batch))
                     x = self.group_augment(batch.state, indices=indices) / 256.0
-                    y = self.group_augment(batch.next_state, isnext=True, cs=batch.state, indices=indices) / 256.0
-                    
+                    #y = self.group_augment(batch.next_state, isnext=True, cs=batch.state, indices=indices) / 256.0
+                    n_states = self.next_states(indices)
+                    y = self.group_augment(n_states, isnext=True, cs=batch.state, indices=indices) / 256.0
                     #self.displayStack(x[0,:,:,:,:])
                     if (self.use_cuda):
                         state_batch = Variable(torch.from_numpy(x).type(torch.FloatTensor)).cuda()
@@ -439,7 +437,13 @@ class BreakoutAgent():
                 
                 if (r != 0):
                     self.memory.sensitive_indices.append(steps_done)
-            
+                    
+                if (len(self.errors) % 10000 == 0):
+                    #self.model.module.save_state_dict('mytraining.pt')
+                    torch.save(self.model.module.state_dict(), 'mytraining.pt')
+                    
+    def next_states(self, indices):
+        return self.memory.next_states(indices)
                     
     def print_statistics(self, iter_num, loss):
         print("Loss at iteration %d is %f" % (iter_num, loss))
@@ -459,7 +463,6 @@ class BreakoutAgent():
     def plot_durations(self, durations):
         '''
         Plots duration curve
-
         Positional Arguments:
         durations : (list of ints) duration for every episode
         '''
@@ -508,6 +511,9 @@ class BreakoutAgent():
     def convert_to_grayscale(self, state):
         gray_state = np.mean(state, axis=4).reshape((1, 1, 210, 160, 1)).astype(np.uint8)
         return gray_state
+        
+    def down_sample(self, img):
+        return img[:, :, ::2, ::2, :]
                     
 def Breakout_action_space():
     return range(4)
@@ -525,6 +531,5 @@ def main():
 
 if __name__ == '__main__':
     main()
-
 
 
