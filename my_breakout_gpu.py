@@ -55,11 +55,15 @@ class ReplayMemory():
         #if (random.random() > 0.8 and len(self.sensitive_indices) > batch_size):
         #    indices = random.sample(self.sensitive_indices, batch_size)
         #else:
-        indices = random.sample(range(len(self.memory)), batch_size)
+        indices = random.sample(range(len(self.memory)-1), batch_size)
         samples = np.array([self.memory[i] for i in indices if i < len(self.memory)])
        
         
         return samples, indices
+        
+    def next_states(self, indices):
+        next_states = np.array([self.memory[i+1] for i in indices])
+        return next_states
     
     def purge(self):
         if (len(self.memory) > 20000):
@@ -350,7 +354,8 @@ class BreakoutAgent():
                 nonterminal = torch.ByteTensor([not done])
 
                 # Remember s, a, r, s', d
-                self.memory.push((state, action, next_state, reward, nonterminal))
+                #self.memory.push((state, action, next_state, reward, nonterminal))
+                self.memory.push((state, action, None, reward, nonterminal))
                 if (len(self.memory) > self.mem_init_size):
                     steps_done += 1
                 state = next_state
@@ -365,8 +370,9 @@ class BreakoutAgent():
                     batch, indices = self.memory.sample(self.batch_size)
                     batch = Transition(*zip(*batch))
                     x = self.group_augment(batch.state, indices=indices) / 256.0
-                    y = self.group_augment(batch.next_state, isnext=True, cs=batch.state, indices=indices) / 256.0
-                    
+                    #y = self.group_augment(batch.next_state, isnext=True, cs=batch.state, indices=indices) / 256.0
+                    n_states = self.next_states(indices)
+                    y = self.group_augment(n_states, isnext=True, cs=batch.state, indices=indices) / 256.0
                     #self.displayStack(x[0,:,:,:,:])
                     if (self.use_cuda):
                         state_batch = Variable(torch.from_numpy(x).type(torch.FloatTensor)).cuda()
@@ -444,6 +450,9 @@ class BreakoutAgent():
                 if (len(self.errors) % 10000 == 0):
                     #self.model.module.save_state_dict('mytraining.pt')
                     torch.save(self.model.module.state_dict(), 'mytraining.pt')
+                    
+    def next_states(self, indices):
+        return self.memory.next_states(indices)
                     
     def print_statistics(self, iter_num, loss):
         print("Loss at iteration %d is %f" % (iter_num, loss))
