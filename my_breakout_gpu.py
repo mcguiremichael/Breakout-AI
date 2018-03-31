@@ -42,7 +42,7 @@ class episode():
 # Stores state, action, next_state, reward, done
 
 class ReplayMemory():
-    def __init__(self, capacity = 1000000):
+    def __init__(self, capacity = 700000):
         ''' Initializes empty replay memory '''
         self.capacity = capacity
         self.memory = [episode() for i in range(capacity)]
@@ -205,7 +205,8 @@ class BreakoutAgent():
         copy_frequency : (int) copy after a certain number of time steps
         '''
         
-        #torch.backends.cudnn.enabled = False
+        # Added because of a memory leak bug in torch's backend
+        torch.backends.cudnn.enabled = False
         
         
         # Save relevant hyperparameters
@@ -458,6 +459,7 @@ class BreakoutAgent():
                 # Most likely unneeded for cart pole, but targets networks are used
                 # generally in DQN.
                 if len(self.errors) % self.copy_frequency == 0 and len(self.memory) >= self.mem_init_size:
+                    gc.collect()
                     self.target_model = copy.deepcopy(self.model)
                 
                 # Plot durations
@@ -469,11 +471,11 @@ class BreakoutAgent():
                     curr_score = 0
                     self.env.reset()
                 
-                """
+                
                 if (len(self.errors) % 1000 == 0):
                     #self.model.module.save_state_dict('mytraining.pt')
                     torch.save(self.model.module.state_dict(), 'mytraining.pt')
-                """
+                
 
     def generate_replay_mem(self, mem_len):
         num_steps = 0
