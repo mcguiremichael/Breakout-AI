@@ -1,3 +1,4 @@
+
 """
 This code borrows heavily from rhiga2's OpenAI gym implementation of Cartpole,
 at https://github.com/rhiga2/cartpole_dqn
@@ -23,6 +24,7 @@ import gc
 
 from pympler import asizeof
 
+
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward', 'nonterminal'))
 
@@ -42,7 +44,7 @@ class episode():
 # Stores state, action, next_state, reward, done
 
 class ReplayMemory():
-    def __init__(self, capacity = 700000):
+    def __init__(self, capacity = 500000):
         ''' Initializes empty replay memory '''
         self.capacity = capacity
         self.memory = [episode() for i in range(capacity)]
@@ -206,8 +208,8 @@ class BreakoutAgent():
         '''
         
         # Added because of a memory leak bug in torch's backend
-        torch.backends.cudnn.enabled = False
-        
+        # torch.backends.cudnn.enabled = False
+        gc.disable()
         
         # Save relevant hyperparameters
         self.use_cuda = torch.cuda.is_available()
@@ -239,7 +241,7 @@ class BreakoutAgent():
         self.train_freq = 4
         self.errors = []
         self.replay_mem_size = self.memory.capacity
-        self.mem_init_size = 50000
+        self.mem_init_size = 500
         
         self.generate_replay_mem(self.mem_init_size)
  
@@ -269,6 +271,7 @@ class BreakoutAgent():
                 s = torch.from_numpy(s).type(torch.FloatTensor)
                 
             maxQ, argmax = torch.max(self.model(Variable(s, volatile = True)), dim = 1)
+            s = None
             return argmax.data[0]
 
         # With prob epsilon choose action randomly
@@ -357,7 +360,7 @@ class BreakoutAgent():
             #self.memory.purge()
             while not done:
                 # Select action and take step
-                # self.env.render()
+                self.env.render()
                 #self.memory.states = np.concatenate([self.memory.states, state], 0)
                 #aug_state = self.augment(state)
                 action = self.select_action(state, steps_done)
@@ -448,19 +451,40 @@ class BreakoutAgent():
                     loss.backward()
                     self.optimizer.step()
                     
+                    
+                    
                     if (self.use_cuda):
-                        l = loss[0]
+                        torch.cuda.empty_cache()
+                    
+                    if (self.use_cuda):
+                        l = loss.data[0]
                     else:
                         l = loss.data[0]
                     self.errors.append(l)
                     self.print_statistics(len(self.errors), l)
                 
+                    del batch
+                    del state_batch
+                    del action_batch
+                    del next_state_batch
+                    del reward_batch
+                    del nonterminal_mask
+                    del next_state_values
+                    del action_indices
+                    del preds
+                    del q_batch
+                    del loss
+                    
+                
                 # Copy to target network
                 # Most likely unneeded for cart pole, but targets networks are used
                 # generally in DQN.
+                
                 if len(self.errors) % self.copy_frequency == 0 and len(self.memory) >= self.mem_init_size:
                     gc.collect()
+                    del self.target_model
                     self.target_model = copy.deepcopy(self.model)
+                    
                 
                 # Plot durations
                 if done and show_plot and len(self.errors) > 0:
@@ -596,9 +620,8 @@ def main():
     cpa = BreakoutAgent()
     print(cpa.model)
     cpa.train()
-    cpa.model.save_state_dict('mytraining.pt')
     # cpa.model.load_state_dict(torch.load('mytraining.pt'))
-    cpa.train(training=False, num_episodes=100000)
+    #cpa.train(training=False, num_episodes=100000)
 
 if __name__ == '__main__':
     main()
