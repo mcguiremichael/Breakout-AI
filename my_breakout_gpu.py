@@ -44,7 +44,7 @@ class episode():
 # Stores state, action, next_state, reward, done
 
 class ReplayMemory():
-    def __init__(self, capacity = 500000):
+    def __init__(self, capacity = 1000000):
         ''' Initializes empty replay memory '''
         self.capacity = capacity
         self.memory = [episode() for i in range(capacity)]
@@ -241,7 +241,7 @@ class BreakoutAgent():
         self.train_freq = 4
         self.errors = []
         self.replay_mem_size = self.memory.capacity
-        self.mem_init_size = 500
+        self.mem_init_size = 50000
         
         self.generate_replay_mem(self.mem_init_size)
  
@@ -365,7 +365,7 @@ class BreakoutAgent():
                 #aug_state = self.augment(state)
                 action = self.select_action(state, steps_done)
                 next_state, reward, done, _ = self.env.step(action)
-
+                reward = self.regularize_reward(reward)
                 if (done):
                     reward -= 1
                     
@@ -513,7 +513,7 @@ class BreakoutAgent():
             while not done:
                 action = random.randint(0, 3)
                 next_state, reward, done, _ = self.env.step(action)
-
+                reward = self.regularize_reward(reward)
                 if (done):
                     reward -= 1
                     
@@ -609,6 +609,11 @@ class BreakoutAgent():
     def down_sample(self, img):
         img = img[:, :, ::2, ::2, :]
         return img
+    
+    def regularize_reward(self, r):
+        if (r > 0):
+            return 1
+        return 0
                     
 def Breakout_action_space():
     return range(4)
