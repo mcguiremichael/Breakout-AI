@@ -191,7 +191,7 @@ class BreakoutAgent():
     '''
 
     def __init__(self, num_episodes = 50000, discount = 0.99, epsilon_max = 1.0,
-                epsilon_min = 0.05, epsilon_decay = 1.2e6, lr = 2.5e-4,
+                epsilon_min = 0.05, epsilon_decay = 1000000, lr = 0.00025,
                 batch_size = 32, copy_frequency = 500):
         '''
         Instantiates DQN agent
@@ -241,7 +241,8 @@ class BreakoutAgent():
         self.train_freq = 4
         self.errors = []
         self.replay_mem_size = self.memory.capacity
-        self.mem_init_size = 100000
+        self.mem_init_size = 50000
+        self.action_repeat = 4
         
         self.generate_replay_mem(self.mem_init_size)
  
@@ -276,7 +277,8 @@ class BreakoutAgent():
 
         # With prob epsilon choose action randomly
         else:
-            return random.randint(0, len(self.action_space)-1)
+            a = random.randint(0, len(self.action_space)-1)
+            return a
         
     def augment(self, curr_state, isnext=False, cs=None, ind=-1, location=None):
         if (STATE_DEPTH == 1):
@@ -348,6 +350,7 @@ class BreakoutAgent():
         if (training):
             num_episodes = self.num_episodes
         #for ep in range(num_episodes):
+        curr_a = 0
         while (steps_done < 10 * self.epsilon_decay):
             state = self.env.reset()
             state = state.reshape((1, 1, 210, 160, 3))
@@ -363,7 +366,11 @@ class BreakoutAgent():
                 self.env.render()
                 #self.memory.states = np.concatenate([self.memory.states, state], 0)
                 #aug_state = self.augment(state)
-                action = self.select_action(state, steps_done)
+                if (steps_done % self.action_repeat == 0):
+                    action = self.select_action(state, steps_done)
+                    curr_a = action
+                else:
+                    action = curr_a
                 next_state, reward, done, _ = self.env.step(action)
                 reward = self.regularize_reward(reward)
                 if (done):
@@ -616,7 +623,7 @@ class BreakoutAgent():
         return 0
                     
 def Breakout_action_space():
-    return range(4)
+    return range(6)
     
 def Breakout_obs_space():
     return (210, 160, 3)
