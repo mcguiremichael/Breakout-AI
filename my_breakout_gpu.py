@@ -146,8 +146,8 @@ class DQN(nn.Module):
 
         for l in range(self.num_layers):
             self.lin_layers.append(nn.Linear(sizes[l], sizes[l+1]))
-            self.lin_layers[-1].weight.data.uniform_(-0.01, 0.01)
-            self.lin_layers[-1].bias.data.uniform_(-0.01, 0.01)
+            #self.lin_layers[-1].weight.data.uniform_(-0.01, 0.01)
+            #self.lin_layers[-1].bias.data.uniform_(-0.01, 0.01)
 
     def conv_output(self, shape):
         inp = Variable(torch.rand(1, *shape))
@@ -192,7 +192,7 @@ class BreakoutAgent():
 
     def __init__(self, num_episodes = 50000, discount = 0.99, epsilon_max = 1.0,
                 epsilon_min = 0.05, epsilon_decay = 1000000, lr = 0.00025,
-                batch_size = 32, copy_frequency = 500):
+                batch_size = 32, copy_frequency = 1000):
         '''
         Instantiates DQN agent
         Keyword Arguments:
@@ -238,11 +238,11 @@ class BreakoutAgent():
             self.model = torch.nn.DataParallel(self.model).cuda()
         self.target_model = copy.deepcopy(self.model)
         self.optimizer = optim.SGD(self.model.parameters(), lr = lr, momentum=0.95)
-        self.train_freq = 4
+        self.train_freq = 1
         self.errors = []
         self.replay_mem_size = self.memory.capacity
         self.mem_init_size = 50000
-        self.action_repeat = 4
+        self.action_repeat = 1
         
         self.generate_replay_mem(self.mem_init_size)
  
@@ -373,8 +373,6 @@ class BreakoutAgent():
                     action = curr_a
                 next_state, reward, done, _ = self.env.step(action)
                 reward = self.regularize_reward(reward)
-                if (done):
-                    reward -= 1
                     
                 r = reward
 
@@ -518,11 +516,9 @@ class BreakoutAgent():
             done = False
             print("Beginning game %d" % num_games)
             while not done:
-                action = random.randint(0, 3)
+                action = random.randint(0, 5)
                 next_state, reward, done, _ = self.env.step(action)
                 reward = self.regularize_reward(reward)
-                if (done):
-                    reward -= 1
                     
                 r = reward
 
