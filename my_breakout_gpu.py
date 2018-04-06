@@ -237,7 +237,7 @@ class BreakoutAgent():
         if (self.use_cuda):
             self.model = torch.nn.DataParallel(self.model).cuda()
         self.target_model = copy.deepcopy(self.model)
-        self.optimizer = optim.SGD(self.model.parameters(), lr = lr, momentum=0.95)
+        self.optimizer = optim.RMSprop(self.model.parameters(), lr=lr, momentum=0.95, eps=0.01)
         self.train_freq = 1
         self.errors = []
         self.replay_mem_size = self.memory.capacity
