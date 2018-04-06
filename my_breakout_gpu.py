@@ -425,10 +425,14 @@ class BreakoutAgent():
                         next_state_values = Variable(torch.zeros(self.batch_size), volatile = True).cuda()
                     else:
                         state_batch = Variable(torch.from_numpy(x).type(torch.FloatTensor))
-                        action_batch = Variable(torch.cat(batch.action))
+                        actions = np.array(batch.action).reshape((self.batch_size, 1))
+                        action_batch = Variable(torch.from_numpy(actions))
                         next_state_batch = Variable(torch.from_numpy(y).type(torch.FloatTensor), volatile = True)
-                        reward_batch = Variable(torch.cat(batch.reward))
-                        nonterminal_mask = torch.cat(batch.nonterminal)
+                        rewards = np.array(batch.reward)
+                        reward_batch = Variable(torch.from_numpy(rewards).type(torch.FloatTensor))
+                        
+                        nonterminal = np.array(batch.nonterminal, dtype=np.uint8)
+                        nonterminal_mask = Variable(torch.from_numpy(nonterminal).type(torch.ByteTensor))
 
                         # Predict Q(s, a) for s in batch
                         q_batch = self.model(state_batch).gather(1, action_batch)
