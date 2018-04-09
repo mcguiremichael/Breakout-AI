@@ -191,8 +191,8 @@ class BreakoutAgent():
     '''
 
     def __init__(self, num_episodes = 50000, discount = 0.99, epsilon_max = 1.0,
-                epsilon_min = 0.05, epsilon_decay = 1000000, lr = 0.00025,
-                batch_size = 32, copy_frequency = 500):
+                epsilon_min = 0.1, epsilon_decay = 1000000, lr = 0.00025,
+                batch_size = 32, copy_frequency = 1000):
         '''
         Instantiates DQN agent
         Keyword Arguments:
@@ -237,8 +237,8 @@ class BreakoutAgent():
         if (self.use_cuda):
             self.model = torch.nn.DataParallel(self.model).cuda()
         self.target_model = copy.deepcopy(self.model)
-        self.optimizer = optim.RMSprop(self.model.parameters(), lr=lr, momentum=0.95, eps=0.01)
-        self.train_freq = 4
+        self.optimizer = optim.RMSprop(self.model.parameters(), lr=lr, momentum=0.95, alpha=0.95, eps=0.01)
+        self.train_freq = 1
         self.errors = []
         self.replay_mem_size = self.memory.capacity
         self.mem_init_size = 50000
@@ -258,7 +258,7 @@ class BreakoutAgent():
         #    math.exp(-1. * steps_done / self.epsilon_decay)
         
         if (steps_done > self.epsilon_decay):
-            epsilon = 0.1
+            epsilon = self.epsilon_min
         else:
             epsilon = self.epsilon_max - (self.epsilon_max - self.epsilon_min) * steps_done / self.epsilon_decay
         #epsilon = 0.0
