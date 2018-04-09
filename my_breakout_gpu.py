@@ -101,7 +101,7 @@ class ReplayMemory():
         for i in range(len(sample)):
             s1 = self.memory[i]
             
-    def index_valid(i):
+    def index_valid(self, i):
         bounded = i < len(self.memory)
         safe = (i-1 < self.position) or (i > self.position + STATE_DEPTH - 1)
         return safe and bounded
@@ -197,7 +197,7 @@ class BreakoutAgent():
 
     def __init__(self, num_episodes = 50000, discount = 0.99, epsilon_max = 1.0,
                 epsilon_min = 0.1, epsilon_decay = 1000000, lr = 0.00025,
-                batch_size = 64, copy_frequency = 1000):
+                batch_size = 32, copy_frequency = 1000):
         '''
         Instantiates DQN agent
         Keyword Arguments:
@@ -242,8 +242,8 @@ class BreakoutAgent():
         if (self.use_cuda):
             self.model = torch.nn.DataParallel(self.model).cuda()
         self.target_model = copy.deepcopy(self.model)
-        self.optimizer = optim.RMSprop(self.model.parameters(), lr=lr, momentum=0.95, alpha=0.95, eps=0.01)
-        self.train_freq = 2
+        self.optimizer = optim.SGD(self.model.parameters(), lr=lr, momentum=0.95)
+        self.train_freq = 1
         self.errors = []
         self.replay_mem_size = self.memory.capacity
         self.mem_init_size = 50000
