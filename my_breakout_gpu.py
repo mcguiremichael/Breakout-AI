@@ -102,7 +102,7 @@ class ReplayMemory():
             s1 = self.memory[i]
             
     def index_valid(self, i):
-        bounded = i < len(self.memory)
+        bounded = i < len(self.memory)-1
         safe = (i-1 < self.position) or (i > self.position + STATE_DEPTH - 1)
         return safe and bounded
 
