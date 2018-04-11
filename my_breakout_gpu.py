@@ -70,8 +70,6 @@ class ReplayMemory():
         self.position = (self.position+1) % self.capacity
         if (self.real_capacity < self.capacity):
             self.real_capacity += 1
-        if (self.position % 1000 == 0):
-            gc.collect()
 
     def sample(self, batch_size):
         ''' Samples item from replay memory '''
@@ -337,10 +335,23 @@ class BreakoutAgent():
         outputs = np.zeros((length, 1, s[2], s[3], IMG_DEPTH * STATE_DEPTH))
         if (not isnext):
             for i in range(len(states)):
-                outputs[i,:,:,:,:] = self.augment(states[i], ind=indices[i], location=outputs[[i],:,:,:,:])
+                try:
+                    outputs[i,:,:,:,:] = self.augment(states[i], ind=indices[i], location=outputs[[i],:,:,:,:])
+                except:
+                    print("Failure: ", i, len(states), indices[i])
+                    print(outputs[i,:,:,:,:])
+                    print(states[i])
+                    print(outputs[[i],:,:,:,:])
         else:
             for i in range(len(states)):
-                outputs[i,:,:,:,:] = self.augment(states[i], isnext=True, cs=cs[i], ind=indices[i], location=outputs[[i],:,:,:,:])
+                try:
+                    outputs[i,:,:,:,:] = self.augment(states[i], isnext=True, cs=cs[i], ind=indices[i], location=outputs[[i],:,:,:,:])
+                except:
+                    print("Failure: ", i, len(states), indices[i])
+                    print(outputs[i,:,:,:,:])
+                    print(states[i])
+                    print(cs[i])
+                    print(outputs[[i],:,:,:,:])
         return outputs
 
     def train(self, show_plot = True, training=True, num_episodes=1000):
