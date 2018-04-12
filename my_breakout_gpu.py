@@ -77,7 +77,8 @@ class ReplayMemory():
         #    indices = random.sample(self.sensitive_indices, batch_size)
         #else:
         indices = random.sample(range(self.real_capacity-1), batch_size)
-        samples = np.array([(self.memory[i].state, self.memory[i].action, None, self.memory[i].reward, self.memory[i].nonterminal) for i in indices if self.index_valid(i)])
+        indices = [indices[i] for i in range(len(indices)) if self.index_valid(i)]
+        samples = np.array([(self.memory[i].state, self.memory[i].action, None, self.memory[i].reward, self.memory[i].nonterminal) for i in indices])
        
         
         return samples, indices
@@ -100,8 +101,8 @@ class ReplayMemory():
             s1 = self.memory[i]
             
     def index_valid(self, i):
-        bounded = i < len(self.memory)-1
-        safe = (i-1 < self.position) or (i > self.position + STATE_DEPTH - 1)
+        bounded = i < self.real_capacity - 2
+        safe = (i-2 < self.position) or (i > self.position + STATE_DEPTH - 1)
         return safe and bounded
 
     def __len__(self):
