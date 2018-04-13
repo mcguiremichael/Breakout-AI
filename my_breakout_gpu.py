@@ -77,7 +77,7 @@ class ReplayMemory():
         #    indices = random.sample(self.sensitive_indices, batch_size)
         #else:
         indices = random.sample(range(self.real_capacity-1), batch_size)
-        indices = [indices[i] for i in range(len(indices)) if self.index_valid(i)]
+        indices = [i for i in indices if self.index_valid(i)]
         samples = np.array([(self.memory[i].state, self.memory[i].action, None, self.memory[i].reward, self.memory[i].nonterminal) for i in indices])
        
         
@@ -423,7 +423,9 @@ class BreakoutAgent():
                     #self.displayStack(x[0,:,:,:,:])
                     if (self.use_cuda):
                         state_batch = Variable(torch.from_numpy(x).type(torch.FloatTensor)).cuda()
-                        actions = np.array(batch.action).reshape((self.batch_size, 1))
+                        n = state_batch.data.shape[0]
+                        print(n)
+                        actions = np.array(batch.action).reshape((n, 1))
                         action_batch = Variable(torch.from_numpy(actions)).cuda()
                         next_state_batch = Variable(torch.from_numpy(y).type(torch.FloatTensor), volatile = True).cuda()
                         rewards = np.array(batch.reward)
@@ -439,10 +441,11 @@ class BreakoutAgent():
                         # if terminal state, then target = rewards
                         # else target = r(s, a) + discount * max_a Q(s', a) where s' is
                         # next state
-                        next_state_values = Variable(torch.zeros(self.batch_size), volatile = True).cuda()
+                        next_state_values = Variable(torch.zeros(n), volatile = True).cuda()
                     else:
                         state_batch = Variable(torch.from_numpy(x).type(torch.FloatTensor))
-                        actions = np.array(batch.action).reshape((self.batch_size, 1))
+                        n = state_batch.data.shape[0]
+                        actions = np.array(batch.action).reshape((n, 1))
                         action_batch = Variable(torch.from_numpy(actions))
                         next_state_batch = Variable(torch.from_numpy(y).type(torch.FloatTensor), volatile = True)
                         rewards = np.array(batch.reward)
@@ -458,7 +461,7 @@ class BreakoutAgent():
                         # if terminal state, then target = rewards
                         # else target = r(s, a) + discount * max_a Q(s', a) where s' is
                         # next state
-                        next_state_values = Variable(torch.zeros(self.batch_size), volatile = True)
+                        next_state_values = Variable(torch.zeros(n), volatile = True)
                     action_indices = torch.nonzero(nonterminal_mask).squeeze(1)
                     preds = self.target_model(next_state_batch[action_indices])
                     # print(indices.shape, preds.shape)
