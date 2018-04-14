@@ -424,7 +424,6 @@ class BreakoutAgent():
                     if (self.use_cuda):
                         state_batch = Variable(torch.from_numpy(x).type(torch.FloatTensor)).cuda()
                         n = state_batch.data.shape[0]
-                        print(n)
                         actions = np.array(batch.action).reshape((n, 1))
                         action_batch = Variable(torch.from_numpy(actions)).cuda()
                         next_state_batch = Variable(torch.from_numpy(y).type(torch.FloatTensor), volatile = True).cuda()
