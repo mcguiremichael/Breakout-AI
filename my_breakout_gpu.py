@@ -196,7 +196,7 @@ class BreakoutAgent():
 
     def __init__(self, num_episodes = 50000, discount = 0.99, epsilon_max = 1.0,
                 epsilon_min = 0.1, epsilon_decay = 1000000, lr = 0.00025,
-                batch_size = 32, copy_frequency = 1000):
+                batch_size = 32, copy_frequency = 10000):
         '''
         Instantiates DQN agent
         Keyword Arguments:
