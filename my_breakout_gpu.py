@@ -195,7 +195,7 @@ class BreakoutAgent():
     '''
 
     def __init__(self, num_episodes = 50000, discount = 0.99, epsilon_max = 1.0,
-                epsilon_min = 0.1, epsilon_decay = 1000000, lr = 0.00025,
+                epsilon_min = 0.1, epsilon_decay = 1000000, lr = 0.0005,
                 batch_size = 64, copy_frequency = 500):
         '''
         Instantiates DQN agent
@@ -226,6 +226,7 @@ class BreakoutAgent():
         self.epsilon_decay = epsilon_decay
         self.batch_size = batch_size
         self.copy_frequency = copy_frequency
+        self.loss = nn.SmoothL1Loss()
     
         # Instantiate replay memory, DQN, target DQN, optimizer, and gym environment
         self.memory = ReplayMemory()
@@ -474,11 +475,11 @@ class BreakoutAgent():
                     next_state_values = next_state_values * self.discount +  reward_batch
 
                     # Define loss function and optimize
-                    loss = F.mse_loss(q_batch, next_state_values)
+                    loss = self.loss(q_batch, next_state_values)
                     self.optimizer.zero_grad()
                     loss.backward()
                     
-                    torch.nn.utils.clip_grad_norm(self.model.parameters(), 1.0)
+                    #torch.nn.utils.clip_grad_norm(self.model.parameters(), 1.0)
                     self.optimizer.step()
                     
                     
