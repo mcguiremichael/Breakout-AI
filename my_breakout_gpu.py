@@ -246,7 +246,7 @@ class BreakoutAgent():
         self.train_freq = 2
         self.errors = []
         self.replay_mem_size = self.memory.capacity
-        self.mem_init_size = 50000
+        self.mem_init_size = 100000
         self.action_repeat = 1
         
         self.generate_replay_mem(self.mem_init_size)
@@ -492,6 +492,7 @@ class BreakoutAgent():
                     else:
                         l = loss.data[0]
                     self.errors.append(l)
+                    #q_sample = q_batch.data[0][0]
                     self.print_statistics(len(self.errors), l)
                 
                     del batch
