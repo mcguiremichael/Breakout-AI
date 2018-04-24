@@ -24,7 +24,7 @@ import gc
 
 from pympler import asizeof
 
-
+np.set_printoptions(precision=4)
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward', 'nonterminal'))
 
@@ -242,11 +242,11 @@ class BreakoutAgent():
         if (self.use_cuda):
             self.model = torch.nn.DataParallel(self.model).cuda()
         self.target_model = copy.deepcopy(self.model)
-        self.optimizer = optim.Adam(self.model.parameters(), lr=lr, betas=(0.95, 0.95), eps=1e-2)
+        self.optimizer = optim.Adam(self.model.parameters(), lr=lr, betas=(0.9, 0.999), eps=1e-8)
         self.train_freq = 2
         self.errors = []
         self.replay_mem_size = self.memory.capacity
-        self.mem_init_size = 100000
+        self.mem_init_size = 50000
         self.action_repeat = 1
         
         self.generate_replay_mem(self.mem_init_size)
@@ -422,6 +422,7 @@ class BreakoutAgent():
                     n_states = self.next_states(indices)
                     y = self.group_augment(n_states, isnext=True, cs=batch.state, indices=indices) / 256.0
                     #self.displayStack(x[0,:,:,:,:])
+                    outs = 0
                     if (self.use_cuda):
                         state_batch = Variable(torch.from_numpy(x).type(torch.FloatTensor)).cuda()
                         n = state_batch.data.shape[0]
@@ -435,7 +436,8 @@ class BreakoutAgent():
                         nonterminal_mask = Variable(torch.from_numpy(nonterminal).type(torch.ByteTensor)).cuda()
 
                         # Predict Q(s, a) for s in batch
-                        q_batch = self.model(state_batch).gather(1, action_batch)
+                        outs = self.model(state_batch)
+                        q_batch = outs.gather(1, action_batch)
 
                         # Calcuate target values
                         # if terminal state, then target = rewards
@@ -455,7 +457,8 @@ class BreakoutAgent():
                         nonterminal_mask = Variable(torch.from_numpy(nonterminal).type(torch.ByteTensor))
 
                         # Predict Q(s, a) for s in batch
-                        q_batch = self.model(state_batch).gather(1, action_batch)
+                        outs = self.model(state_batch)
+                        q_batch = outs.gather(1, action_batch)
 
                         # Calcuate target values
                         # if terminal state, then target = rewards
@@ -493,7 +496,8 @@ class BreakoutAgent():
                         l = loss.data[0]
                     self.errors.append(l)
                     #q_sample = q_batch.data[0][0]
-                    self.print_statistics(len(self.errors), l)
+                    sample_qs = outs.data[0].cpu().numpy()
+                    self.print_statistics(len(self.errors), l, sample_qs)
                 
                     del batch
                     del state_batch
@@ -569,8 +573,8 @@ class BreakoutAgent():
     def next_states(self, indices):
         return self.memory.next_states(indices)
                     
-    def print_statistics(self, iter_num, loss):
-        print("Loss at iteration %d is %f" % (iter_num, loss))
+    def print_statistics(self, iter_num, loss, sample_qs):
+        print("Loss at iteration %d is %f. Vals: %s" % (iter_num, loss, np.array_str(sample_qs))),
 
     def displayStack(self, state):
         state = state.reshape((210, 160, STATE_DEPTH))
