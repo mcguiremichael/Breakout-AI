@@ -280,9 +280,7 @@ class BreakoutAgent():
                 
             maxQ, argmax = torch.max(self.model(Variable(s, volatile = True)), dim = 1)
             s = None
-            a = argmax.data[0]
-            print(a)
-            return a
+            return argmax.data[0]
 
         # With prob epsilon choose action randomly
         else:
@@ -393,7 +391,7 @@ class BreakoutAgent():
                     curr_a = action
                 else:
                     action = curr_a
-                next_state, reward, done, _ = self.env.step(action+1)
+                next_state, reward, done, _ = self.env.step(action)
                 reward = self.regularize_reward(reward)
                     
                 r = reward
@@ -551,10 +549,9 @@ class BreakoutAgent():
             done = False
             print("Beginning game %d" % num_games)
             while not done:
-                #action = random.randint(0, 5)
-                action = random.randint(0, 2)
+                action = random.randint(0, 5)
                 self.env.render()
-                next_state, reward, done, _ = self.env.step(action+1)
+                next_state, reward, done, _ = self.env.step(action)
                 reward = self.regularize_reward(reward)
                     
                 r = reward
@@ -656,7 +653,7 @@ class BreakoutAgent():
         return 0
                     
 def Breakout_action_space():
-    return range(3)
+    return range(6)
     
 def Breakout_obs_space():
     return (210, 160, 3)
