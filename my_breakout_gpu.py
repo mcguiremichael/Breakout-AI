@@ -31,6 +31,8 @@ Transition = namedtuple('Transition',
 STATE_DEPTH = 4
 IMG_DEPTH = 1
 FRAME_SHAPE = (1, 1, 105, 80, IMG_DEPTH)
+FILTERS_1 = 25
+FILTERS_2 = 40
 
 class episode():
     def __init__(self):
@@ -130,13 +132,13 @@ class DQN(nn.Module):
         self.hidden_activation = hidden_activation
         self.in_shape = (1, 105, 80, IMG_DEPTH*STATE_DEPTH)        
         self.conv1 = nn.Conv3d(in_channels=1,
-                                out_channels=16,
+                                out_channels=FILTERS_1,
                                 kernel_size=(8, 8, IMG_DEPTH*STATE_DEPTH),
                                 padding=(4, 4, 0),
                                 stride=4)
                                 
-        self.conv2 = nn.Conv3d(in_channels=16, 
-                                out_channels = 32,
+        self.conv2 = nn.Conv3d(in_channels=FILTERS_1, 
+                                out_channels = FILTERS_2,
                                 kernel_size = (4, 4, 1),
                                 padding=(2, 2, 0),
                                 stride=2)
@@ -195,8 +197,8 @@ class BreakoutAgent():
     '''
 
     def __init__(self, num_episodes = 50000, discount = 0.99, epsilon_max = 1.0,
-                epsilon_min = 0.1, epsilon_decay = 1000000, lr = 0.0005,
-                batch_size = 40, copy_frequency = 10000):
+                epsilon_min = 0.1, epsilon_decay = 3000000, lr = 0.00025,
+                batch_size = 32, copy_frequency = 1000):
         '''
         Instantiates DQN agent
         Keyword Arguments:
@@ -238,11 +240,11 @@ class BreakoutAgent():
         
         print(self.env.action_space, self.env.observation_space)
         
-        self.model = DQN(self.obs_space[0] * self.obs_space[1] * self.obs_space[2], len(self.action_space), [512])
+        self.model = DQN(self.obs_space[0] * self.obs_space[1] * self.obs_space[2], len(self.action_space), [400])
         if (self.use_cuda):
             self.model = torch.nn.DataParallel(self.model).cuda()
         self.target_model = copy.deepcopy(self.model)
-        self.optimizer = optim.Adam(self.model.parameters(), lr=lr, betas=(0.9, 0.999), eps=1e-8)
+        self.optimizer = optim.RMSprop(self.model.parameters(), lr=lr, momentum=0.95)
         self.train_freq = 1
         self.errors = []
         self.replay_mem_size = self.memory.capacity
@@ -278,7 +280,9 @@ class BreakoutAgent():
                 
             maxQ, argmax = torch.max(self.model(Variable(s, volatile = True)), dim = 1)
             s = None
-            return argmax.data[0]
+            a = argmax.data[0]
+            print(a)
+            return a
 
         # With prob epsilon choose action randomly
         else:
@@ -389,7 +393,7 @@ class BreakoutAgent():
                     curr_a = action
                 else:
                     action = curr_a
-                next_state, reward, done, _ = self.env.step(action)
+                next_state, reward, done, _ = self.env.step(action+1)
                 reward = self.regularize_reward(reward)
                     
                 r = reward
@@ -547,8 +551,10 @@ class BreakoutAgent():
             done = False
             print("Beginning game %d" % num_games)
             while not done:
-                action = random.randint(0, 5)
-                next_state, reward, done, _ = self.env.step(action)
+                #action = random.randint(0, 5)
+                action = random.randint(0, 2)
+                self.env.render()
+                next_state, reward, done, _ = self.env.step(action+1)
                 reward = self.regularize_reward(reward)
                     
                 r = reward
@@ -577,7 +583,7 @@ class BreakoutAgent():
         print("Loss at iteration %d is %f. Vals: %s" % (iter_num, loss, np.array_str(sample_qs))),
 
     def displayStack(self, state):
-        state = state.reshape((210, 160, STATE_DEPTH))
+        state = state.reshape((105, 80, STATE_DEPTH))
         self.displayImage(state[:,:,0])
         self.displayImage(state[:,:,1])
         self.displayImage(state[:,:,2])
@@ -650,7 +656,7 @@ class BreakoutAgent():
         return 0
                     
 def Breakout_action_space():
-    return range(6)
+    return range(3)
     
 def Breakout_obs_space():
     return (210, 160, 3)
