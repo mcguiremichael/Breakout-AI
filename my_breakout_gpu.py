@@ -31,8 +31,8 @@ Transition = namedtuple('Transition',
 STATE_DEPTH = 4
 IMG_DEPTH = 1
 FRAME_SHAPE = (1, 1, 105, 80, IMG_DEPTH)
-FILTERS_1 = 25
-FILTERS_2 = 40
+FILTERS_1 = 16
+FILTERS_2 = 32
 
 class episode():
     def __init__(self):
@@ -118,7 +118,7 @@ class DQN(nn.Module):
     '''
 
     def __init__(self, input_size, output_size, hidden_sizes,
-                    hidden_activation = F.relu):
+                    hidden_activation = F.leaky_relu):
         '''
         Instantiates DQN
         Position Arguments:
@@ -198,7 +198,7 @@ class BreakoutAgent():
 
     def __init__(self, num_episodes = 50000, discount = 0.99, epsilon_max = 1.0,
                 epsilon_min = 0.1, epsilon_decay = 3000000, lr = 0.00025,
-                batch_size = 32, copy_frequency = 1000):
+                batch_size = 40, copy_frequency = 1000):
         '''
         Instantiates DQN agent
         Keyword Arguments:
@@ -240,11 +240,11 @@ class BreakoutAgent():
         
         print(self.env.action_space, self.env.observation_space)
         
-        self.model = DQN(self.obs_space[0] * self.obs_space[1] * self.obs_space[2], len(self.action_space), [400])
+        self.model = DQN(self.obs_space[0] * self.obs_space[1] * self.obs_space[2], len(self.action_space), [256])
         if (self.use_cuda):
             self.model = torch.nn.DataParallel(self.model).cuda()
         self.target_model = copy.deepcopy(self.model)
-        self.optimizer = optim.RMSprop(self.model.parameters(), lr=lr, momentum=0.95)
+        self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
         self.train_freq = 1
         self.errors = []
         self.replay_mem_size = self.memory.capacity
@@ -272,7 +272,7 @@ class BreakoutAgent():
         # With prob 1 - epsilon choose action to max Q
         if sample > epsilon or not explore:
             aug_state = self.augment(state)
-            s = aug_state / 256.0
+            s = (aug_state / 256.0)
             if (self.use_cuda):
                 s = torch.from_numpy(s).type(torch.FloatTensor).cuda()
             else:
@@ -383,7 +383,7 @@ class BreakoutAgent():
             #self.memory.purge()
             while not done:
                 # Select action and take step
-                self.env.render()
+                #self.env.render()
                 #self.memory.states = np.concatenate([self.memory.states, state], 0)
                 #aug_state = self.augment(state)
                 if (steps_done % self.action_repeat == 0):
@@ -393,7 +393,6 @@ class BreakoutAgent():
                     action = curr_a
                 next_state, reward, done, _ = self.env.step(action)
                 reward = self.regularize_reward(reward)
-                    
                 r = reward
 
                 # Convert s, a, r, s', d to tensors
@@ -419,10 +418,10 @@ class BreakoutAgent():
                     #batch = Transition(*zip(*batch))
                     batch, indices = self.memory.sample(self.batch_size)
                     batch = Transition(*zip(*batch))
-                    x = self.group_augment(batch.state, indices=indices) / 256.0
+                    x = (self.group_augment(batch.state, indices=indices) / 256.0) 
                     #y = self.group_augment(batch.next_state, isnext=True, cs=batch.state, indices=indices) / 256.0
                     n_states = self.next_states(indices)
-                    y = self.group_augment(n_states, isnext=True, cs=batch.state, indices=indices) / 256.0
+                    y = (self.group_augment(n_states, isnext=True, cs=batch.state, indices=indices) / 256.0) 
                     #self.displayStack(x[0,:,:,:,:])
                     outs = 0
                     if (self.use_cuda):
@@ -468,6 +467,7 @@ class BreakoutAgent():
                         # next state
                         next_state_values = Variable(torch.zeros(n), volatile = True)
                     action_indices = torch.nonzero(nonterminal_mask).squeeze(1)
+                    #print(nonterminal_mask.cpu().data.numpy())
                     preds = self.target_model(next_state_batch[action_indices])
                     # print(indices.shape, preds.shape)
                     #print(next_state_values[nonterminal_mask].data.shape, torch.max(preds, dim = 1)[0].data.shape)
@@ -478,7 +478,6 @@ class BreakoutAgent():
                     # Make sure the final loss is not volatile
                     next_state_values.volatile = False
                     next_state_values = next_state_values * self.discount +  reward_batch
-
                     # Define loss function and optimize
                     loss = self.loss(q_batch, next_state_values)
                     self.optimizer.zero_grad()
@@ -499,7 +498,8 @@ class BreakoutAgent():
                     self.errors.append(l)
                     #q_sample = q_batch.data[0][0]
                     sample_qs = outs.data[0].cpu().numpy()
-                    self.print_statistics(len(self.errors), l, sample_qs)
+                    target = next_state_values.data[0]
+                    self.print_statistics(len(self.errors), l, sample_qs, target)
                 
                     del batch
                     del state_batch
@@ -528,7 +528,7 @@ class BreakoutAgent():
                 if done and show_plot and len(self.errors) > 0:
                     durations.append(duration)
                     scores.append(curr_score)
-                    self.plot_scores(scores)
+                    #self.plot_scores(scores)
                     duration = 0
                     curr_score = 0
                     self.env.reset()
@@ -550,12 +550,10 @@ class BreakoutAgent():
             print("Beginning game %d" % num_games)
             while not done:
                 action = random.randint(0, 5)
-                self.env.render()
+                #self.env.render()
                 next_state, reward, done, _ = self.env.step(action)
                 reward = self.regularize_reward(reward)
-                    
                 r = reward
-
                 # Convert s, a, r, s', d to tensors
                 next_state = next_state.reshape((1, 1, 210, 160, 3))
                 next_state = self.down_sample(self.convert_to_grayscale(next_state))
@@ -576,8 +574,9 @@ class BreakoutAgent():
     def next_states(self, indices):
         return self.memory.next_states(indices)
                     
-    def print_statistics(self, iter_num, loss, sample_qs):
-        print("Loss at iteration %d is %f. Vals: %s" % (iter_num, loss, np.array_str(sample_qs))),
+    def print_statistics(self, iter_num, loss, sample_qs, sample_target):
+        print("Loss at iteration %d is %f. Vals: %s. Targets: %f" % (iter_num, loss, np.array_str(sample_qs), sample_target)),
+	
 
     def displayStack(self, state):
         state = state.reshape((105, 80, STATE_DEPTH))
@@ -634,7 +633,7 @@ class BreakoutAgent():
                 state = torch.from_numpy(state.reshape((1, 1, 210, 160, IMG_DEPTH))).type(torch.FloatTensor)
                 t += 1
                 time.sleep(0.05)
-                self.env.render()
+                #self.env.render()
                 if done:
                     print("Episode finished after {} timesteps".format(t+1))
                     break
