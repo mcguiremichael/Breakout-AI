@@ -23,6 +23,7 @@ import time
 import gc
 
 from pympler import asizeof
+from collections import OrderedDict
 
 np.set_printoptions(precision=4)
 Transition = namedtuple('Transition',
@@ -242,7 +243,7 @@ class BreakoutAgent():
         
         self.model = DQN(self.obs_space[0] * self.obs_space[1] * self.obs_space[2], len(self.action_space), [256])
         if (self.use_cuda):
-            self.model = torch.nn.DataParallel(self.model).cuda()
+            self.model = self.model.cuda()
         self.target_model = copy.deepcopy(self.model)
         self.optimizer = optim.RMSprop(self.model.parameters(), lr=lr, eps=0.01, momentum=0.95, alpha=0.9)
         self.train_freq = 1
@@ -536,8 +537,8 @@ class BreakoutAgent():
                 
                 if (len(self.errors) % 1000 == 0):
                     #self.model.module.save_state_dict('mytraining.pt')
-                    torch.save(self.model.module.state_dict(), 'mytraining.pt')
-                
+                    #torch.save(self.model.module.state_dict(), 'mytraining.pt')
+                    torch.save(self.model.state_dict(), 'mytraining.pt')
 
     def generate_replay_mem(self, mem_len):
         num_steps = 0
@@ -617,23 +618,31 @@ class BreakoutAgent():
 
     def run_and_visualize(self):
         ''' Runs and visualizes the cartpole agents. '''
+                
+        
+        self.model.load_state_dict(torch.load('mytraining.pt'))
+        self.model = torch.nn.DataParallel(self.model).cuda()
+        
         self.env.reset()
         for i in range(50):
             #self.env.reset()
             print ("Running and visualizing now . . .")
             state = self.env.reset()
-            state = torch.from_numpy(state.reshape((1, 1, 210, 160, 3))).type(torch.FloatTensor)
             actions = []
             done = False
             t = 0
             while not done:
-                print ("loop is iterating", t)
+                state = state.reshape((1, 1, 210, 160, 3))
+                state = self.down_sample(self.convert_to_grayscale(state))
                 action = self.select_action(state, explore = False)
-                state, reward, done, _ = self.env.step(action)
-                state = torch.from_numpy(state.reshape((1, 1, 210, 160, IMG_DEPTH))).type(torch.FloatTensor)
+                next_state, reward, done, _ = self.env.step(action)
                 t += 1
-                time.sleep(0.05)
-                #self.env.render()
+                nonterminal = not done
+                episode = (state, action, None, reward, nonterminal)
+                print(state.shape)
+                self.memory.push(episode)
+                self.env.render()
+                state = next_state
                 if done:
                     print("Episode finished after {} timesteps".format(t+1))
                     break
@@ -661,6 +670,7 @@ def main():
     cpa = BreakoutAgent()
     print(cpa.model)
     cpa.train()
+    #cpa.run_and_visualize()
     # cpa.model.load_state_dict(torch.load('mytraining.pt'))
     #cpa.train(training=False, num_episodes=100000)
 
