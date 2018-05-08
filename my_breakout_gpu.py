@@ -245,7 +245,7 @@ class BreakoutAgent():
         if (self.use_cuda):
             self.model = self.model.cuda()
         self.target_model = copy.deepcopy(self.model)
-        self.optimizer = optim.RMSprop(self.model.parameters(), lr=lr, eps=0.01, momentum=0.95, alpha=0.9)
+        self.optimizer = optim.RMSprop(self.model.parameters(), lr=lr, eps=0.01, momentum=0.95, alpha=0.9, weight_decay = 0.00003)
         self.train_freq = 1
         self.errors = []
         self.replay_mem_size = self.memory.capacity
@@ -380,11 +380,11 @@ class BreakoutAgent():
             duration = 0
             curr_score = 0
             self.memory.done_indices.append(steps_done)
-            print("Beginning game %d (%d frames)" % (len(self.memory.done_indices), duration))
+           
             #self.memory.purge()
             while not done:
                 # Select action and take step
-                #self.env.render()
+                self.env.render()
                 #self.memory.states = np.concatenate([self.memory.states, state], 0)
                 #aug_state = self.augment(state)
                 if (steps_done % self.action_repeat == 0):
@@ -395,6 +395,8 @@ class BreakoutAgent():
                 next_state, reward, done, _ = self.env.step(action)
                 reward = self.regularize_reward(reward)
                 r = reward
+                if done:
+                    reward -= 1
 
                 # Convert s, a, r, s', d to tensors
                 next_state = next_state.reshape((1, 1, 210, 160, 3))
@@ -527,9 +529,10 @@ class BreakoutAgent():
                 
                 # Plot durations
                 if done and show_plot and len(self.errors) > 0:
+                    print("Game %d lasted %d frames" % (len(self.memory.done_indices), duration))
                     durations.append(duration)
                     scores.append(curr_score)
-                    #self.plot_scores(scores)
+                    self.plot_scores(scores)
                     duration = 0
                     curr_score = 0
                     self.env.reset()
@@ -555,6 +558,8 @@ class BreakoutAgent():
                 next_state, reward, done, _ = self.env.step(action)
                 reward = self.regularize_reward(reward)
                 r = reward
+                if (done):
+                    reward -= 1
                 # Convert s, a, r, s', d to tensors
                 next_state = next_state.reshape((1, 1, 210, 160, 3))
                 next_state = self.down_sample(self.convert_to_grayscale(next_state))
@@ -635,6 +640,9 @@ class BreakoutAgent():
                 state = state.reshape((1, 1, 210, 160, 3))
                 state = self.down_sample(self.convert_to_grayscale(state))
                 action = self.select_action(state, explore = False)
+                if (random.random() > 0.98):
+                    action = random.randint(0, 5)
+                time.sleep(0.01)
                 next_state, reward, done, _ = self.env.step(action)
                 t += 1
                 nonterminal = not done
