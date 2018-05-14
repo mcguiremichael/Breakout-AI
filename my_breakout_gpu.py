@@ -34,6 +34,8 @@ IMG_DEPTH = 1
 FRAME_SHAPE = (1, 1, 105, 80, IMG_DEPTH)
 FILTERS_1 = 16
 FILTERS_2 = 32
+FILTERS_3 = 32 
+
 
 class episode():
     def __init__(self):
@@ -143,7 +145,25 @@ class DQN(nn.Module):
                                 kernel_size = (4, 4, 1),
                                 padding=(2, 2, 0),
                                 stride=2)
-        
+
+        self.conv3 = nn.Conv3d(in_channels=FILTERS_2,
+                                out_channels=FILTERS_3,
+                                kernel_size=(3, 3, 1),
+                                padding=(1, 1, 0),
+                                stride=1)
+        """
+        self.conv1.weight.data.normal_(0.0, 1.0)
+        self.conv1.bias.data.xavier_uniform_()
+        self.conv2.weight.data.xavier_uniform_()
+        self.conv2.bias.data.xavier_uniform_()
+        self.conv3.weight.data.xavier_uniform_()
+        self.conv3.bias.data.xavier_uniform_()
+        """
+
+        nn.init.xavier_uniform(self.conv1.weight.data)
+        nn.init.xavier_uniform(self.conv2.weight.data)
+        nn.init.xavier_uniform(self.conv3.weight.data)
+
         self.n_size = self.conv_output(self.in_shape)
         
         
@@ -153,8 +173,7 @@ class DQN(nn.Module):
 
         for l in range(self.num_layers):
             self.lin_layers.append(nn.Linear(sizes[l], sizes[l+1]))
-            #self.lin_layers[-1].weight.data.uniform_(-0.01, 0.01)
-            #self.lin_layers[-1].bias.data.uniform_(-0.01, 0.01)
+            nn.init.xavier_uniform(self.lin_layers[-1].weight.data)
 
     def conv_output(self, shape):
         inp = Variable(torch.rand(1, *shape))
@@ -167,6 +186,7 @@ class DQN(nn.Module):
         #x = F.max_pool3d(x, (2, 2, 1), (2, 2, 1))
         x = self.hidden_activation(self.conv2(x))
         #x = F.max_pool3d(x, (2, 2, 1), (2, 2, 1))
+        x = self.hidden_activation(self.conv3(x))
         return x
 
     def forward(self, x):
@@ -197,9 +217,9 @@ class BreakoutAgent():
     Defines cartpole agent
     '''
 
-    def __init__(self, num_episodes = 50000, discount = 0.98, epsilon_max = 1.0,
-                epsilon_min = 0.1, epsilon_decay = 1000000, lr = 0.00025,
-                batch_size = 40, copy_frequency = 1000):
+    def __init__(self, num_episodes = 50000, discount = 0.99, epsilon_max = 1.0,
+                epsilon_min = 0.1, epsilon_decay = 3000000, lr = 0.00025,
+                batch_size = 32, copy_frequency = 10000):
         '''
         Instantiates DQN agent
         Keyword Arguments:
@@ -241,11 +261,11 @@ class BreakoutAgent():
         
         print(self.env.action_space, self.env.observation_space)
         
-        self.model = DQN(self.obs_space[0] * self.obs_space[1] * self.obs_space[2], len(self.action_space), [256])
+        self.model = DQN(self.obs_space[0] * self.obs_space[1] * self.obs_space[2], len(self.action_space), [512])
         if (self.use_cuda):
             self.model = self.model.cuda()
         self.target_model = copy.deepcopy(self.model)
-        self.optimizer = optim.RMSprop(self.model.parameters(), lr=lr, eps=0.01, momentum=0.95, alpha=0.9, weight_decay = 0.00003)
+        self.optimizer = optim.RMSprop(self.model.parameters(), lr=lr, eps=0.01, momentum=0.95, alpha=0.95)
         self.train_freq = 1
         self.errors = []
         self.replay_mem_size = self.memory.capacity
@@ -384,7 +404,7 @@ class BreakoutAgent():
             #self.memory.purge()
             while not done:
                 # Select action and take step
-                self.env.render()
+                #self.env.render()
                 #self.memory.states = np.concatenate([self.memory.states, state], 0)
                 #aug_state = self.augment(state)
                 if (steps_done % self.action_repeat == 0):
@@ -395,8 +415,6 @@ class BreakoutAgent():
                 next_state, reward, done, _ = self.env.step(action)
                 reward = self.regularize_reward(reward)
                 r = reward
-                if done:
-                    reward -= 1
 
                 # Convert s, a, r, s', d to tensors
                 next_state = next_state.reshape((1, 1, 210, 160, 3))
@@ -532,7 +550,7 @@ class BreakoutAgent():
                     print("Game %d lasted %d frames" % (len(self.memory.done_indices), duration))
                     durations.append(duration)
                     scores.append(curr_score)
-                    self.plot_scores(scores)
+                    #self.plot_scores(scores)
                     duration = 0
                     curr_score = 0
                     self.env.reset()
@@ -553,13 +571,11 @@ class BreakoutAgent():
             done = False
             print("Beginning game %d" % num_games)
             while not done:
-                action = random.randint(0, 5)
+                action = random.randint(0, len(self.action_space)-1)
                 #self.env.render()
                 next_state, reward, done, _ = self.env.step(action)
                 reward = self.regularize_reward(reward)
                 r = reward
-                if (done):
-                    reward -= 1
                 # Convert s, a, r, s', d to tensors
                 next_state = next_state.reshape((1, 1, 210, 160, 3))
                 next_state = self.down_sample(self.convert_to_grayscale(next_state))
@@ -641,7 +657,7 @@ class BreakoutAgent():
                 state = self.down_sample(self.convert_to_grayscale(state))
                 action = self.select_action(state, explore = False)
                 if (random.random() > 0.98):
-                    action = random.randint(0, 5)
+                    action = random.randint(0, len(self.action_space)-1)
                 time.sleep(0.01)
                 next_state, reward, done, _ = self.env.step(action)
                 t += 1
@@ -649,7 +665,7 @@ class BreakoutAgent():
                 episode = (state, action, None, reward, nonterminal)
                 print(state.shape)
                 self.memory.push(episode)
-                self.env.render()
+                #self.env.render()
                 state = next_state
                 if done:
                     print("Episode finished after {} timesteps".format(t+1))
@@ -669,7 +685,7 @@ class BreakoutAgent():
         return 0
                     
 def Breakout_action_space():
-    return range(6)
+    return range(4)
     
 def Breakout_obs_space():
     return (210, 160, 3)
