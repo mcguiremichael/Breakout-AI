@@ -20,7 +20,7 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 from collections import namedtuple
 import time
-import gc
+import scipy.misc
 
 from pympler import asizeof
 from collections import OrderedDict
@@ -31,10 +31,10 @@ Transition = namedtuple('Transition',
 
 STATE_DEPTH = 4
 IMG_DEPTH = 1
-FRAME_SHAPE = (1, 1, 105, 80, IMG_DEPTH)
+FRAME_SHAPE = (1, 1, 84, 84, IMG_DEPTH)
 FILTERS_1 = 16
 FILTERS_2 = 32
-FILTERS_3 = 32 
+FILTERS_3 = 64 
 
 
 class episode():
@@ -67,6 +67,8 @@ class ReplayMemory():
             self.memory[self.position] = item
             self.position = (self.position + 1) % self.capacity
         """
+        if (self.position+1 in self.done_indices):
+            self.done_indices.remove(self.position+1)
         x = self.memory[self.position]
         x.state[:,:,:,:,:] = item[0][:,:,:,:,:]
         x.action = item[1]
@@ -81,7 +83,9 @@ class ReplayMemory():
         #if (random.random() > 0.8 and len(self.sensitive_indices) > batch_size):
         #    indices = random.sample(self.sensitive_indices, batch_size)
         #else:
-        indices = random.sample(range(self.real_capacity-1), batch_size)
+        terminal_num = 0
+        #indices = random.sample(self.done_indices, terminal_num)
+        indices = random.sample(range(self.real_capacity-1), batch_size - terminal_num) #+ indices
         indices = [i for i in indices if self.index_valid(i)]
         samples = np.array([(self.memory[i].state, self.memory[i].action, None, self.memory[i].reward, self.memory[i].nonterminal) for i in indices])
        
@@ -112,7 +116,7 @@ class ReplayMemory():
 
     def __len__(self):
         ''' Current size or replay memory '''
-        return len(self.memory)
+        return self.position
         
         
 class DQN(nn.Module):
@@ -121,7 +125,7 @@ class DQN(nn.Module):
     '''
 
     def __init__(self, input_size, output_size, hidden_sizes,
-                    hidden_activation = F.leaky_relu):
+                    hidden_activation = F.relu):
         '''
         Instantiates DQN
         Position Arguments:
@@ -133,7 +137,7 @@ class DQN(nn.Module):
         '''
         super(DQN, self).__init__()
         self.hidden_activation = hidden_activation
-        self.in_shape = (1, 105, 80, IMG_DEPTH*STATE_DEPTH)        
+        self.in_shape = (1, 84, 84, IMG_DEPTH*STATE_DEPTH)        
         self.conv1 = nn.Conv3d(in_channels=1,
                                 out_channels=FILTERS_1,
                                 kernel_size=(8, 8, IMG_DEPTH*STATE_DEPTH),
@@ -145,12 +149,13 @@ class DQN(nn.Module):
                                 kernel_size = (4, 4, 1),
                                 padding=(2, 2, 0),
                                 stride=2)
-
+        """
         self.conv3 = nn.Conv3d(in_channels=FILTERS_2,
                                 out_channels=FILTERS_3,
                                 kernel_size=(3, 3, 1),
                                 padding=(1, 1, 0),
                                 stride=1)
+        """
         """
         self.conv1.weight.data.normal_(0.0, 1.0)
         self.conv1.bias.data.xavier_uniform_()
@@ -162,7 +167,7 @@ class DQN(nn.Module):
 
         nn.init.xavier_uniform(self.conv1.weight.data)
         nn.init.xavier_uniform(self.conv2.weight.data)
-        nn.init.xavier_uniform(self.conv3.weight.data)
+        #nn.init.xavier_uniform(self.conv3.weight.data)
 
         self.n_size = self.conv_output(self.in_shape)
         
@@ -186,7 +191,7 @@ class DQN(nn.Module):
         #x = F.max_pool3d(x, (2, 2, 1), (2, 2, 1))
         x = self.hidden_activation(self.conv2(x))
         #x = F.max_pool3d(x, (2, 2, 1), (2, 2, 1))
-        x = self.hidden_activation(self.conv3(x))
+        #x = self.hidden_activation(self.conv3(x))
         return x
 
     def forward(self, x):
@@ -218,7 +223,7 @@ class BreakoutAgent():
     '''
 
     def __init__(self, num_episodes = 50000, discount = 0.99, epsilon_max = 1.0,
-                epsilon_min = 0.1, epsilon_decay = 3000000, lr = 0.00025,
+                epsilon_min = 0.1, epsilon_decay = 1000000, lr = 0.00025,
                 batch_size = 32, copy_frequency = 10000):
         '''
         Instantiates DQN agent
@@ -236,7 +241,6 @@ class BreakoutAgent():
         
         # Added because of a memory leak bug in torch's backend
         # torch.backends.cudnn.enabled = False
-        gc.disable()
         
         # Save relevant hyperparameters
         self.use_cuda = torch.cuda.is_available()
@@ -256,17 +260,17 @@ class BreakoutAgent():
         
         #self.env = gym.make('Breakout-v0')
         self.env = gym.make('BreakoutDeterministic-v4')
-        self.action_space = Breakout_action_space()
+        self.action_space = range(4)
         self.obs_space = Breakout_obs_space()
         
         print(self.env.action_space, self.env.observation_space)
         
-        self.model = DQN(self.obs_space[0] * self.obs_space[1] * self.obs_space[2], len(self.action_space), [512])
+        self.model = DQN(self.obs_space[0] * self.obs_space[1] * self.obs_space[2], len(self.action_space), [256])
         if (self.use_cuda):
             self.model = self.model.cuda()
         self.target_model = copy.deepcopy(self.model)
-        self.optimizer = optim.RMSprop(self.model.parameters(), lr=lr, eps=0.01, momentum=0.95, alpha=0.95)
-        self.train_freq = 1
+        self.optimizer = optim.RMSprop(self.model.parameters(), lr=lr, eps=1e-2, momentum=0.95, alpha=0.95)
+        self.train_freq = 4
         self.errors = []
         self.replay_mem_size = self.memory.capacity
         self.mem_init_size = 50000
@@ -292,8 +296,9 @@ class BreakoutAgent():
         #epsilon = 0.0
         # With prob 1 - epsilon choose action to max Q
         if sample > epsilon or not explore:
-            aug_state = self.augment(state)
-            s = (aug_state / 256.0)
+            aug_state = self.augment(state) / 256.0
+            s = (aug_state)
+            
             if (self.use_cuda):
                 s = torch.from_numpy(s).type(torch.FloatTensor).cuda()
             else:
@@ -377,7 +382,7 @@ class BreakoutAgent():
                     print(states[i])
                     print(cs[i])
                     print(outputs[[i],:,:,:,:])
-        return outputs
+        return outputs / 256.0
 
     def train(self, show_plot = True, training=True, num_episodes=1000):
         '''
@@ -392,23 +397,27 @@ class BreakoutAgent():
             num_episodes = self.num_episodes
         #for ep in range(num_episodes):
         curr_a = 0
-        while (steps_done < 10 * self.epsilon_decay):
+        train_steps = 0
+        num_saves = 0
+        while (train_steps < 10 * self.epsilon_decay):
             state = self.env.reset()
             state = state.reshape((1, 1, 210, 160, 3))
-            state = self.down_sample(self.convert_to_grayscale(state))
+            state = self.convert_to_grayscale(self.down_sample(state))
             done = False
             duration = 0
             curr_score = 0
-            self.memory.done_indices.append(steps_done)
+            if (steps_done > 0):
+                self.memory.done_indices.append(len(self.memory))
            
             #self.memory.purge()
             while not done:
+            
                 # Select action and take step
-                #self.env.render()
+                self.env.render()
                 #self.memory.states = np.concatenate([self.memory.states, state], 0)
                 #aug_state = self.augment(state)
                 if (steps_done % self.action_repeat == 0):
-                    action = self.select_action(state, steps_done)
+                    action = self.select_action(state, train_steps)
                     curr_a = action
                 else:
                     action = curr_a
@@ -418,7 +427,7 @@ class BreakoutAgent():
 
                 # Convert s, a, r, s', d to tensors
                 next_state = next_state.reshape((1, 1, 210, 160, 3))
-                next_state = self.down_sample(self.convert_to_grayscale(next_state))
+                next_state = self.convert_to_grayscale(self.down_sample(next_state))
                 action = action
                 reward = reward
                 nonterminal = not done
@@ -434,15 +443,16 @@ class BreakoutAgent():
 
                 # Sample from replay memory if full memory is full capacity
                 
-                if len(self.memory) >= self.mem_init_size and steps_done % self.train_freq == 0 and training:
+                if steps_done % self.train_freq == 0 and training:
+                    train_steps += 1
                     #batch = self.memory.sample(self.batch_size)
                     #batch = Transition(*zip(*batch))
                     batch, indices = self.memory.sample(self.batch_size)
                     batch = Transition(*zip(*batch))
-                    x = (self.group_augment(batch.state, indices=indices) / 256.0) 
+                    x = (self.group_augment(batch.state, indices=indices)) 
                     #y = self.group_augment(batch.next_state, isnext=True, cs=batch.state, indices=indices) / 256.0
                     n_states = self.next_states(indices)
-                    y = (self.group_augment(n_states, isnext=True, cs=batch.state, indices=indices) / 256.0) 
+                    y = (self.group_augment(n_states, isnext=True, cs=batch.state, indices=indices)) 
                     #self.displayStack(x[0,:,:,:,:])
                     outs = 0
                     if (self.use_cuda):
@@ -508,10 +518,10 @@ class BreakoutAgent():
                     self.optimizer.step()
                     
                     
-                    
+                    """
                     if (self.use_cuda):
                         torch.cuda.empty_cache()
-                    
+                    """
                     if (self.use_cuda):
                         l = loss.data[0]
                     else:
@@ -521,7 +531,8 @@ class BreakoutAgent():
                     sample_qs = outs.data[0].cpu().numpy()
                     target = next_state_values.data[0]
                     self.print_statistics(len(self.errors), l, sample_qs, target)
-                
+                    
+                    """
                     del batch
                     del state_batch
                     del action_batch
@@ -533,33 +544,36 @@ class BreakoutAgent():
                     del preds
                     del q_batch
                     del loss
-                    
+                    """
                 
                 # Copy to target network
                 # Most likely unneeded for cart pole, but targets networks are used
                 # generally in DQN.
                 
                 if len(self.errors) % self.copy_frequency == 0 and len(self.memory) >= self.mem_init_size:
-                    gc.collect()
                     del self.target_model
                     self.target_model = copy.deepcopy(self.model)
                     
                 
                 # Plot durations
                 if done and show_plot and len(self.errors) > 0:
-                    print("Game %d lasted %d frames" % (len(self.memory.done_indices), duration))
+                    print("Game %d lasted %d frames with score %d" % (len(scores), duration, curr_score))
                     durations.append(duration)
                     scores.append(curr_score)
-                    #self.plot_scores(scores)
+                    if (len(scores) % 50) == 0:
+                        self.plot_scores(scores)
                     duration = 0
                     curr_score = 0
                     self.env.reset()
                 
                 
-                if (len(self.errors) % 1000 == 0):
+                if (len(self.errors) % 200000 == 0):
                     #self.model.module.save_state_dict('mytraining.pt')
                     #torch.save(self.model.module.state_dict(), 'mytraining.pt')
-                    torch.save(self.model.state_dict(), 'mytraining.pt')
+                    filename = 'mytraining.pt' + str(num_saves)
+                    num_saves += 1
+                    torch.save(self.model.state_dict(), filename)
+
 
     def generate_replay_mem(self, mem_len):
         num_steps = 0
@@ -567,7 +581,7 @@ class BreakoutAgent():
         while(num_steps < mem_len):
             state = self.env.reset()
             state = state.reshape((1, 1, 210, 160, 3))
-            state = self.down_sample(self.convert_to_grayscale(state))
+            state = self.convert_to_grayscale(self.down_sample(state))
             done = False
             print("Beginning game %d" % num_games)
             while not done:
@@ -578,7 +592,7 @@ class BreakoutAgent():
                 r = reward
                 # Convert s, a, r, s', d to tensors
                 next_state = next_state.reshape((1, 1, 210, 160, 3))
-                next_state = self.down_sample(self.convert_to_grayscale(next_state))
+                next_state = self.convert_to_grayscale(self.down_sample(next_state))
                 action = action
                 reward = reward
                 nonterminal = not done
@@ -590,7 +604,7 @@ class BreakoutAgent():
                 state = next_state
                 num_steps += 1
                 
-                
+            self.memory.done_indices.append(num_steps)
             num_games += 1
                     
     def next_states(self, indices):
@@ -641,7 +655,7 @@ class BreakoutAgent():
         ''' Runs and visualizes the cartpole agents. '''
                 
         
-        self.model.load_state_dict(torch.load('mytraining.pt'))
+        self.model.load_state_dict(torch.load('mytraining.pt20'))
         self.model = torch.nn.DataParallel(self.model).cuda()
         
         self.env.reset()
@@ -652,32 +666,43 @@ class BreakoutAgent():
             actions = []
             done = False
             t = 0
+            score = 0
             while not done:
                 state = state.reshape((1, 1, 210, 160, 3))
-                state = self.down_sample(self.convert_to_grayscale(state))
+                state = self.convert_to_grayscale(self.down_sample(state))
                 action = self.select_action(state, explore = False)
                 if (random.random() > 0.98):
                     action = random.randint(0, len(self.action_space)-1)
-                time.sleep(0.01)
+                #time.sleep(0.01)
                 next_state, reward, done, _ = self.env.step(action)
                 t += 1
+                score += reward
+                print(score)
                 nonterminal = not done
                 episode = (state, action, None, reward, nonterminal)
-                print(state.shape)
                 self.memory.push(episode)
-                #self.env.render()
+                self.env.render()
                 state = next_state
                 if done:
                     print("Episode finished after {} timesteps".format(t+1))
                     break
                     
     def convert_to_grayscale(self, state):
-        state = np.mean(state, axis=4).reshape((1, 1, 210, 160, 1)).astype(np.uint8)
+        state = np.mean(state, axis=4).astype(np.uint8).reshape((1, 1, 84, 84, 1))
         return state
         
     def down_sample(self, img):
-        img = img[:, :, ::2, ::2, :]
-        return img
+        top=34
+        bot=34+160
+        left=0
+        right=160
+        if (img.shape != (210, 160, 3)):
+            img = img.reshape((210, 160, 3))
+        img = img[top:bot, left:right, :]
+        img = scipy.misc.imresize(img, (84, 84, 3), interp='nearest')
+        
+        #img = img[:, :, ::2, ::2, :]
+        return img.reshape((1, 1, 84, 84, 3))
     
     def regularize_reward(self, r):
         if (r > 0):
@@ -694,7 +719,7 @@ def main():
     cpa = BreakoutAgent()
     print(cpa.model)
     cpa.train()
-    #cpa.run_and_visualize()
+    cpa.run_and_visualize()
     # cpa.model.load_state_dict(torch.load('mytraining.pt'))
     #cpa.train(training=False, num_episodes=100000)
 
