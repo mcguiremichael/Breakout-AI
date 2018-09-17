@@ -31,7 +31,8 @@ Transition = namedtuple('Transition',
 
 STATE_DEPTH = 4
 IMG_DEPTH = 1
-FRAME_SHAPE = (1, 1, 84, 84, IMG_DEPTH)
+FRAME_SHAPE = (IMG_DEPTH, 84, 84)
+INPUT_SHAPE = (STATE_DEPTH, 84, 84)
 FILTERS_1 = 16
 FILTERS_2 = 32
 FILTERS_3 = 64 
@@ -70,7 +71,7 @@ class ReplayMemory():
         if (self.position+1 in self.done_indices):
             self.done_indices.remove(self.position+1)
         x = self.memory[self.position]
-        x.state[:,:,:,:,:] = item[0][:,:,:,:,:]
+        x.state[:,:,:] = item[0][:,:,:]
         x.action = item[1]
         x.reward = item[3]
         x.nonterminal = item[4]
@@ -105,9 +106,6 @@ class ReplayMemory():
             for i in range(len(self.done_indices)):
                 self.done_indices[i] -= amount
         
-    def augment_sample(self, sample):
-        for i in range(len(sample)):
-            s1 = self.memory[i]
             
     def index_valid(self, i):
         bounded = i < self.real_capacity - 2
@@ -125,7 +123,7 @@ class DQN(nn.Module):
     '''
 
     def __init__(self, input_size, output_size, hidden_sizes,
-                    hidden_activation = F.relu):
+                    hidden_activation = F.leaky_relu):
         '''
         Instantiates DQN
         Position Arguments:
@@ -137,17 +135,17 @@ class DQN(nn.Module):
         '''
         super(DQN, self).__init__()
         self.hidden_activation = hidden_activation
-        self.in_shape = (1, 84, 84, IMG_DEPTH*STATE_DEPTH)        
-        self.conv1 = nn.Conv3d(in_channels=1,
-                                out_channels=FILTERS_1,
-                                kernel_size=(8, 8, IMG_DEPTH*STATE_DEPTH),
-                                padding=(4, 4, 0),
+        self.in_shape = (IMG_DEPTH*STATE_DEPTH, 84, 84)        
+        self.conv1 = nn.Conv2d(STATE_DEPTH,
+                                FILTERS_1,
+                                kernel_size=8,
+                                padding=4,
                                 stride=4)
                                 
-        self.conv2 = nn.Conv3d(in_channels=FILTERS_1, 
+        self.conv2 = nn.Conv2d(in_channels=FILTERS_1, 
                                 out_channels = FILTERS_2,
-                                kernel_size = (4, 4, 1),
-                                padding=(2, 2, 0),
+                                kernel_size = 4,
+                                padding=2,
                                 stride=2)
         """
         self.conv3 = nn.Conv3d(in_channels=FILTERS_2,
@@ -245,6 +243,7 @@ class BreakoutAgent():
         # Save relevant hyperparameters
         self.use_cuda = torch.cuda.is_available()
         #self.use_cuda = False
+        self.lr = lr
         
         self.num_episodes = num_episodes
         self.discount = discount
@@ -269,12 +268,14 @@ class BreakoutAgent():
         if (self.use_cuda):
             self.model = self.model.cuda()
         self.target_model = copy.deepcopy(self.model)
-        self.optimizer = optim.RMSprop(self.model.parameters(), lr=lr, eps=1e-2, momentum=0.95, alpha=0.95)
+        #self.optimizer = optim.RMSprop(self.model.parameters(), lr=lr, eps=1e-8, momentum=0.95, alpha=0.9)
+        self.optimizer = optim.Adadelta(self.model.parameters(), rho=0.9)
         self.train_freq = 4
         self.errors = []
         self.replay_mem_size = self.memory.capacity
         self.mem_init_size = 50000
         self.action_repeat = 1
+        self.no_op_max=30
         
         self.generate_replay_mem(self.mem_init_size)
  
@@ -296,6 +297,9 @@ class BreakoutAgent():
         #epsilon = 0.0
         # With prob 1 - epsilon choose action to max Q
         if sample > epsilon or not explore:
+            
+            state = state.reshape((1, 1, 84, 84))
+
             aug_state = self.augment(state) / 256.0
             s = (aug_state)
             
@@ -325,21 +329,21 @@ class BreakoutAgent():
         if (type(location) != type(None)):
             output = location
         else:
-            output = np.zeros((1, 1, s[2], s[3], IMG_DEPTH*STATE_DEPTH))
-        output[:,:,:,:,range(IMG_DEPTH)] = curr_state
+            output = np.zeros((1, STATE_DEPTH, 84, 84))
+        output[0,range(IMG_DEPTH),:,:] = curr_state
         i = 1
             
         counter = STATE_DEPTH-1
         previous = []
         past_start = False
         if (isnext):
-            #curr_state = np.concatenate([curr_state, cs], 4)
-            output[:,:,:,:,range(i*IMG_DEPTH, (i+1)*IMG_DEPTH)] = cs
+            output[0, range(i*IMG_DEPTH, (i+1)*IMG_DEPTH),:,:] = cs
             i += 1
             counter -= 1
+        
+        
         while (counter > 0):
             if (index < 0 or index >= len(self.memory)):
-                #curr_state = np.concatenate([curr_state, np.zeros((1, 1, s[2], s[3], IMG_DEPTH * counter))], 4)
                 break
             prev = self.memory.memory[index]
             
@@ -348,7 +352,7 @@ class BreakoutAgent():
                 break
             else:
                 #curr_state = np.concatenate([curr_state, prev[0]], 4);
-                output[:,:,:,:,range(i*IMG_DEPTH, (i+1)*IMG_DEPTH)] = prev.state
+                output[0,range(i*IMG_DEPTH, (i+1)*IMG_DEPTH),:,:] = prev.state
                 
             i += 1
             index -= 1
@@ -362,26 +366,13 @@ class BreakoutAgent():
         length = len(states)
         if (len(indices) == 0):
             indices = [-1 for i in range(len(states))]
-        outputs = np.zeros((length, 1, s[2], s[3], IMG_DEPTH * STATE_DEPTH))
+        outputs = np.zeros((length, IMG_DEPTH * STATE_DEPTH, 84, 84))
         if (not isnext):
             for i in range(len(states)):
-                try:
-                    outputs[i,:,:,:,:] = self.augment(states[i], ind=indices[i], location=outputs[[i],:,:,:,:])
-                except:
-                    print("Failure: ", i, len(states), indices[i])
-                    print(outputs[i,:,:,:,:])
-                    print(states[i])
-                    print(outputs[[i],:,:,:,:])
+                outputs[i,:,:,:] = self.augment(states[i], ind=indices[i], location=outputs[[i],:,:,:])
         else:
             for i in range(len(states)):
-                try:
-                    outputs[i,:,:,:,:] = self.augment(states[i], isnext=True, cs=cs[i], ind=indices[i], location=outputs[[i],:,:,:,:])
-                except:
-                    print("Failure: ", i, len(states), indices[i])
-                    print(outputs[i,:,:,:,:])
-                    print(states[i])
-                    print(cs[i])
-                    print(outputs[[i],:,:,:,:])
+                outputs[i,:,:] = self.augment(states[i], isnext=True, cs=cs[i], ind=indices[i], location=outputs[[i],:,:,:])
         return outputs / 256.0
 
     def train(self, show_plot = True, training=True, num_episodes=1000):
@@ -400,8 +391,13 @@ class BreakoutAgent():
         train_steps = 0
         num_saves = 0
         while (train_steps < 10 * self.epsilon_decay):
+            
+            
+            curr_lives = -2
+        
+        
             state = self.env.reset()
-            state = state.reshape((1, 1, 210, 160, 3))
+            state = state.reshape((3, 210, 160))
             state = self.convert_to_grayscale(self.down_sample(state))
             done = False
             duration = 0
@@ -412,6 +408,11 @@ class BreakoutAgent():
             #self.memory.purge()
             while not done:
             
+                """
+                if (train_steps == 1000000):
+                    self.optimizer = optim.RMSprop(self.model.parameters(), lr=self.lr/2, eps=1e-8, momentum=0.95, alpha=0.9)
+                """
+                
                 # Select action and take step
                 self.env.render()
                 #self.memory.states = np.concatenate([self.memory.states, state], 0)
@@ -421,16 +422,20 @@ class BreakoutAgent():
                     curr_a = action
                 else:
                     action = curr_a
-                next_state, reward, done, _ = self.env.step(action)
+                next_state, reward, done, info = self.env.step(action)
+                lives = info['ale.lives']
                 reward = self.regularize_reward(reward)
                 r = reward
 
                 # Convert s, a, r, s', d to tensors
-                next_state = next_state.reshape((1, 1, 210, 160, 3))
+                next_state = next_state.reshape((3, 210, 160))
                 next_state = self.convert_to_grayscale(self.down_sample(next_state))
                 action = action
                 reward = reward
                 nonterminal = not done
+                if (curr_lives - lives == 1):
+                    nonterminal = False
+                curr_lives = lives
 
                 # Remember s, a, r, s', d
                 #self.memory.push((state, action, next_state, reward, nonterminal))
@@ -453,7 +458,6 @@ class BreakoutAgent():
                     #y = self.group_augment(batch.next_state, isnext=True, cs=batch.state, indices=indices) / 256.0
                     n_states = self.next_states(indices)
                     y = (self.group_augment(n_states, isnext=True, cs=batch.state, indices=indices)) 
-                    #self.displayStack(x[0,:,:,:,:])
                     outs = 0
                     if (self.use_cuda):
                         state_batch = Variable(torch.from_numpy(x).type(torch.FloatTensor)).cuda()
@@ -550,7 +554,7 @@ class BreakoutAgent():
                 # Most likely unneeded for cart pole, but targets networks are used
                 # generally in DQN.
                 
-                if len(self.errors) % self.copy_frequency == 0 and len(self.memory) >= self.mem_init_size:
+                if steps_done % self.copy_frequency == 0 and len(self.memory) >= self.mem_init_size:
                     del self.target_model
                     self.target_model = copy.deepcopy(self.model)
                     
@@ -579,23 +583,35 @@ class BreakoutAgent():
         num_steps = 0
         num_games = 1
         while(num_steps < mem_len):
+            
+            no_op_num = 0
+            
             state = self.env.reset()
-            state = state.reshape((1, 1, 210, 160, 3))
+            state = state.reshape((3, 210, 160))
             state = self.convert_to_grayscale(self.down_sample(state))
             done = False
             print("Beginning game %d" % num_games)
+            curr_lives = -2
             while not done:
+                if (no_op_num > self.no_op_max):
+                    action = random.randint(1, len(self.action_space)-1)
                 action = random.randint(0, len(self.action_space)-1)
+                if (action == 0):
+                    no_op_num += 1
+                
                 #self.env.render()
-                next_state, reward, done, _ = self.env.step(action)
+                next_state, reward, done, info = self.env.step(action)
+                lives = info['ale.lives']
                 reward = self.regularize_reward(reward)
-                r = reward
                 # Convert s, a, r, s', d to tensors
-                next_state = next_state.reshape((1, 1, 210, 160, 3))
+                next_state = next_state.reshape((3, 210, 160))
                 next_state = self.convert_to_grayscale(self.down_sample(next_state))
                 action = action
                 reward = reward
                 nonterminal = not done
+                if (curr_lives - lives == 1):
+                    nonterminal = False
+                curr_lives = lives
 
                 # Remember s, a, r, s', d
                 #self.memory.push((state, action, next_state, reward, nonterminal))
@@ -615,11 +631,11 @@ class BreakoutAgent():
 	
 
     def displayStack(self, state):
-        state = state.reshape((105, 80, STATE_DEPTH))
-        self.displayImage(state[:,:,0])
-        self.displayImage(state[:,:,1])
-        self.displayImage(state[:,:,2])
-        self.displayImage(state[:,:,3])
+        state = state.reshape(INPUT_SHAPE)
+        self.displayImage(state[0,:,:])
+        self.displayImage(state[1,:,:])
+        self.displayImage(state[2,:,:])
+        self.displayImage(state[3,:,:])
         
 
     def displayImage(self, image):
@@ -668,7 +684,7 @@ class BreakoutAgent():
             t = 0
             score = 0
             while not done:
-                state = state.reshape((1, 1, 210, 160, 3))
+                state = state.reshape((3, 210, 160))
                 state = self.convert_to_grayscale(self.down_sample(state))
                 action = self.select_action(state, explore = False)
                 if (random.random() > 0.98):
@@ -688,7 +704,7 @@ class BreakoutAgent():
                     break
                     
     def convert_to_grayscale(self, state):
-        state = np.mean(state, axis=4).astype(np.uint8).reshape((1, 1, 84, 84, 1))
+        state = np.mean(state, axis=0).astype(np.uint8).reshape((1, 84, 84))
         return state
         
     def down_sample(self, img):
@@ -700,9 +716,8 @@ class BreakoutAgent():
             img = img.reshape((210, 160, 3))
         img = img[top:bot, left:right, :]
         img = scipy.misc.imresize(img, (84, 84, 3), interp='nearest')
-        
-        #img = img[:, :, ::2, ::2, :]
-        return img.reshape((1, 1, 84, 84, 3))
+        img = np.swapaxes(np.swapaxes(img, 0, 1), 0, 2)
+        return img
     
     def regularize_reward(self, r):
         if (r > 0):
