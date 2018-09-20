@@ -268,8 +268,8 @@ class BreakoutAgent():
         if (self.use_cuda):
             self.model = self.model.cuda()
         self.target_model = copy.deepcopy(self.model)
-        #self.optimizer = optim.RMSprop(self.model.parameters(), lr=lr, eps=1e-8, momentum=0.95, alpha=0.9)
-        self.optimizer = optim.Adadelta(self.model.parameters(), rho=0.9)
+        self.optimizer = optim.RMSprop(self.model.parameters(), lr=lr, eps=1e-4, momentum=0.9, alpha=0.95)
+        #self.optimizer = optim.Adadelta(self.model.parameters(), rho=0.9)
         self.train_freq = 4
         self.errors = []
         self.replay_mem_size = self.memory.capacity
@@ -408,10 +408,10 @@ class BreakoutAgent():
             #self.memory.purge()
             while not done:
             
-                """
+                
                 if (train_steps == 1000000):
-                    self.optimizer = optim.RMSprop(self.model.parameters(), lr=self.lr/2, eps=1e-8, momentum=0.95, alpha=0.9)
-                """
+                    self.optimizer = optim.RMSprop(self.model.parameters(), lr=self.lr/2, eps=1e-4, momentum=0.9, alpha=0.95)
+                
                 
                 # Select action and take step
                 self.env.render()
@@ -574,7 +574,7 @@ class BreakoutAgent():
                 if (len(self.errors) % 200000 == 0):
                     #self.model.module.save_state_dict('mytraining.pt')
                     #torch.save(self.model.module.state_dict(), 'mytraining.pt')
-                    filename = 'mytraining.pt' + str(num_saves)
+                    filename = 'models/mytraining.pt' + str(num_saves)
                     num_saves += 1
                     torch.save(self.model.state_dict(), filename)
 
@@ -734,7 +734,7 @@ def main():
     cpa = BreakoutAgent()
     print(cpa.model)
     cpa.train()
-    cpa.run_and_visualize()
+    #cpa.run_and_visualize()
     # cpa.model.load_state_dict(torch.load('mytraining.pt'))
     #cpa.train(training=False, num_episodes=100000)
 
