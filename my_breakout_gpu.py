@@ -24,6 +24,7 @@ import scipy.misc
 
 from pympler import asizeof
 from collections import OrderedDict
+import cv2
 
 np.set_printoptions(precision=4)
 Transition = namedtuple('Transition',
@@ -50,7 +51,7 @@ class episode():
 # Stores state, action, next_state, reward, done
 
 class ReplayMemory():
-    def __init__(self, capacity = 1000000):
+    def __init__(self, capacity = 1000):
         ''' Initializes empty replay memory '''
         self.capacity = capacity
         self.memory = [episode() for i in range(capacity)]
@@ -268,12 +269,12 @@ class BreakoutAgent():
         if (self.use_cuda):
             self.model = self.model.cuda()
         self.target_model = copy.deepcopy(self.model)
-        self.optimizer = optim.RMSprop(self.model.parameters(), lr=lr, eps=1e-4, momentum=0.9, alpha=0.95)
+        self.optimizer = optim.RMSprop(self.model.parameters(), lr=lr, eps=1e-2, momentum=0.95, alpha=0.95)
         #self.optimizer = optim.Adadelta(self.model.parameters(), rho=0.9)
         self.train_freq = 4
         self.errors = []
         self.replay_mem_size = self.memory.capacity
-        self.mem_init_size = 50000
+        self.mem_init_size = 50
         self.action_repeat = 1
         self.no_op_max=30
         
@@ -302,7 +303,7 @@ class BreakoutAgent():
 
             aug_state = self.augment(state) / 256.0
             s = (aug_state)
-            
+            #self.displayStack(s)
             if (self.use_cuda):
                 s = torch.from_numpy(s).type(torch.FloatTensor).cuda()
             else:
@@ -408,10 +409,10 @@ class BreakoutAgent():
             #self.memory.purge()
             while not done:
             
-                
+                """
                 if (train_steps == 1000000):
                     self.optimizer = optim.RMSprop(self.model.parameters(), lr=self.lr/2, eps=1e-4, momentum=0.9, alpha=0.95)
-                
+                """
                 
                 # Select action and take step
                 self.env.render()
@@ -671,37 +672,95 @@ class BreakoutAgent():
         ''' Runs and visualizes the cartpole agents. '''
                 
         
-        self.model.load_state_dict(torch.load('mytraining.pt20'))
-        self.model = torch.nn.DataParallel(self.model).cuda()
+        self.model.load_state_dict(torch.load('models/mytraining.pt50'))
+        self.model = self.model.cuda()
         
         self.env.reset()
-        for i in range(50):
-            #self.env.reset()
-            print ("Running and visualizing now . . .")
-            state = self.env.reset()
-            actions = []
-            done = False
-            t = 0
-            score = 0
-            while not done:
-                state = state.reshape((3, 210, 160))
-                state = self.convert_to_grayscale(self.down_sample(state))
-                action = self.select_action(state, explore = False)
-                if (random.random() > 0.98):
-                    action = random.randint(0, len(self.action_space)-1)
-                #time.sleep(0.01)
-                next_state, reward, done, _ = self.env.step(action)
-                t += 1
-                score += reward
-                print(score)
-                nonterminal = not done
-                episode = (state, action, None, reward, nonterminal)
-                self.memory.push(episode)
-                self.env.render()
-                state = next_state
-                if done:
-                    print("Episode finished after {} timesteps".format(t+1))
-                    break
+        for j in range(100):
+            self.model.load_state_dict(torch.load('models/mytraining.pt' + str(j)))
+            self.model = self.model.cuda()
+            for i in range(3):
+                #self.env.reset()
+                state = self.env.reset()
+                actions = []
+                done = False
+                t = 0
+                score = 0
+                while not done:
+                    state = state.reshape((3, 210, 160))
+                    state = self.convert_to_grayscale(self.down_sample(state))
+                    action = self.select_action(state, explore = False)
+                    if (random.random() > 0.98):
+                        action = random.randint(0, len(self.action_space)-1)
+                    #time.sleep(0.01)
+                    next_state, reward, done, _ = self.env.step(action)
+                    t += 1
+                    score += reward
+                    nonterminal = not done
+                    episode = (state, action, None, reward, nonterminal)
+                    self.memory.push(episode)
+                    self.env.render()
+                    state = next_state
+                    if done:
+                        print("Model {} finished after {} timesteps with score {}".format(j, t+1, score))
+                        break
+                        
+    def generate_video(self):
+        
+        fourcc = cv2.VideoWriter_fourcc(*'DIVX')
+        out = cv2.VideoWriter('breakout.avi', fourcc, 20, (160, 210), isColor=True)
+        
+        num_models = 1
+        num_games = 250
+        
+        games = []
+        scores = []
+        
+        for i in range(23, 27):
+            self.model.load_state_dict(torch.load('models/mytraining.pt' + str(i)))
+            self.model = self.model.cuda()
+            
+            for j in range(num_games):
+                curr_game = []
+                
+                state = self.env.reset()
+                score = 0
+                t = 0
+                done = False
+                while not done:
+                    orig_state = np.flip(state, 2)
+                    curr_game.append(orig_state)
+                    state = state.reshape((3, 210, 160))
+                   
+                    state = self.convert_to_grayscale(self.down_sample(state))
+                    action = self.select_action(state, explore = False)
+                    if (random.random() > 0.95):
+                        action = random.randint(0, len(self.action_space)-1)
+                    next_state, reward, done, _ = self.env.step(action)
+                    score += reward
+                    t += 1
+                    self.env.render()
+                    nonterminal = not done
+                    episode = (state, action, None, reward, nonterminal)
+                    self.memory.push(episode)
+                    state = next_state                    
+                    if done:
+                        print("Model {} finished after {} timesteps with score {}".format(i, t+1, score))
+                        break
+                if (score >= 90):
+                    games.append(curr_game)
+                    scores.append(score)
+        
+        score_indices = sorted(range(len(scores)), key=lambda k: scores[k], reverse=True)
+        for i in range(20):
+            game = games[score_indices[i]]
+            for j in range(len(game)):
+                out.write(game[j])
+                            
+        out.release()
+        
+                    
+            
                     
     def convert_to_grayscale(self, state):
         state = np.mean(state, axis=0).astype(np.uint8).reshape((1, 84, 84))
@@ -733,8 +792,9 @@ def Breakout_obs_space():
 def main():
     cpa = BreakoutAgent()
     print(cpa.model)
-    cpa.train()
+    #cpa.train()
     #cpa.run_and_visualize()
+    #cpa.generate_video()
     # cpa.model.load_state_dict(torch.load('mytraining.pt'))
     #cpa.train(training=False, num_episodes=100000)
 
