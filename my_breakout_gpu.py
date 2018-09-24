@@ -34,8 +34,8 @@ STATE_DEPTH = 4
 IMG_DEPTH = 1
 FRAME_SHAPE = (IMG_DEPTH, 84, 84)
 INPUT_SHAPE = (STATE_DEPTH, 84, 84)
-FILTERS_1 = 16
-FILTERS_2 = 32
+FILTERS_1 = 32
+FILTERS_2 = 64
 FILTERS_3 = 64 
 
 
@@ -51,7 +51,7 @@ class episode():
 # Stores state, action, next_state, reward, done
 
 class ReplayMemory():
-    def __init__(self, capacity = 1000):
+    def __init__(self, capacity = 1000000):
         ''' Initializes empty replay memory '''
         self.capacity = capacity
         self.memory = [episode() for i in range(capacity)]
@@ -124,7 +124,7 @@ class DQN(nn.Module):
     '''
 
     def __init__(self, input_size, output_size, hidden_sizes,
-                    hidden_activation = F.leaky_relu):
+                    hidden_activation = F.relu):
         '''
         Instantiates DQN
         Position Arguments:
@@ -148,13 +148,13 @@ class DQN(nn.Module):
                                 kernel_size = 4,
                                 padding=2,
                                 stride=2)
-        """
-        self.conv3 = nn.Conv3d(in_channels=FILTERS_2,
+        
+        self.conv3 = nn.Conv2d(in_channels=FILTERS_2,
                                 out_channels=FILTERS_3,
-                                kernel_size=(3, 3, 1),
-                                padding=(1, 1, 0),
+                                kernel_size=3,
+                                padding=1,
                                 stride=1)
-        """
+        
         """
         self.conv1.weight.data.normal_(0.0, 1.0)
         self.conv1.bias.data.xavier_uniform_()
@@ -166,7 +166,7 @@ class DQN(nn.Module):
 
         nn.init.xavier_uniform(self.conv1.weight.data)
         nn.init.xavier_uniform(self.conv2.weight.data)
-        #nn.init.xavier_uniform(self.conv3.weight.data)
+        nn.init.xavier_uniform(self.conv3.weight.data)
 
         self.n_size = self.conv_output(self.in_shape)
         
@@ -190,7 +190,7 @@ class DQN(nn.Module):
         #x = F.max_pool3d(x, (2, 2, 1), (2, 2, 1))
         x = self.hidden_activation(self.conv2(x))
         #x = F.max_pool3d(x, (2, 2, 1), (2, 2, 1))
-        #x = self.hidden_activation(self.conv3(x))
+        x = self.hidden_activation(self.conv3(x))
         return x
 
     def forward(self, x):
@@ -245,6 +245,8 @@ class BreakoutAgent():
         self.use_cuda = torch.cuda.is_available()
         #self.use_cuda = False
         self.lr = lr
+        self.lr_min = lr / 5
+        self.lr_decay_wavelength = 3000000
         
         self.num_episodes = num_episodes
         self.discount = discount
@@ -274,7 +276,7 @@ class BreakoutAgent():
         self.train_freq = 4
         self.errors = []
         self.replay_mem_size = self.memory.capacity
-        self.mem_init_size = 50
+        self.mem_init_size = 50000
         self.action_repeat = 1
         self.no_op_max=30
         
@@ -291,6 +293,7 @@ class BreakoutAgent():
         #epsilon = self.epsilon_min + (self.epsilon_max - self.epsilon_min) * \
         #    math.exp(-1. * steps_done / self.epsilon_decay)
         
+        
         if (steps_done > self.epsilon_decay):
             epsilon = self.epsilon_min
         else:
@@ -303,7 +306,6 @@ class BreakoutAgent():
 
             aug_state = self.augment(state) / 256.0
             s = (aug_state)
-            #self.displayStack(s)
             if (self.use_cuda):
                 s = torch.from_numpy(s).type(torch.FloatTensor).cuda()
             else:
@@ -391,7 +393,12 @@ class BreakoutAgent():
         curr_a = 0
         train_steps = 0
         num_saves = 0
-        while (train_steps < 10 * self.epsilon_decay):
+        
+        # learning rate decay
+        lambda1 = lambda epoch: self.lr_min + (self.lr_decay_wavelength - train_steps) / self.lr_decay_wavelength
+        scheduler = optim.lr_scheduler.LambdaLR(self.optimizer, lr_lambda=[lambda1])
+        
+        while (train_steps < 50 * self.epsilon_decay):
             
             
             curr_lives = -2
@@ -409,11 +416,10 @@ class BreakoutAgent():
             #self.memory.purge()
             while not done:
             
-                """
-                if (train_steps == 1000000):
-                    self.optimizer = optim.RMSprop(self.model.parameters(), lr=self.lr/2, eps=1e-4, momentum=0.9, alpha=0.95)
-                """
-                
+                # handles learning rate decay
+                if (train_steps < self.lr_decay_wavelength and train_steps % 1000 == 0):
+                    scheduler.step()
+            
                 # Select action and take step
                 self.env.render()
                 #self.memory.states = np.concatenate([self.memory.states, state], 0)
@@ -550,6 +556,13 @@ class BreakoutAgent():
                     del q_batch
                     del loss
                     """
+                    
+                    if (len(self.errors) % 200000 == 0):
+                        #self.model.module.save_state_dict('mytraining.pt')
+                        #torch.save(self.model.module.state_dict(), 'mytraining.pt')
+                        filename = 'models/mytraining.pt' + str(num_saves)
+                        num_saves += 1
+                        torch.save(self.model.state_dict(), filename)
                 
                 # Copy to target network
                 # Most likely unneeded for cart pole, but targets networks are used
@@ -571,13 +584,7 @@ class BreakoutAgent():
                     curr_score = 0
                     self.env.reset()
                 
-                
-                if (len(self.errors) % 200000 == 0):
-                    #self.model.module.save_state_dict('mytraining.pt')
-                    #torch.save(self.model.module.state_dict(), 'mytraining.pt')
-                    filename = 'models/mytraining.pt' + str(num_saves)
-                    num_saves += 1
-                    torch.save(self.model.state_dict(), filename)
+              
 
 
     def generate_replay_mem(self, mem_len):
@@ -779,9 +786,12 @@ class BreakoutAgent():
         return img
     
     def regularize_reward(self, r):
+        """
         if (r > 0):
             return 1
         return 0
+        """
+        return r
                     
 def Breakout_action_space():
     return range(4)
@@ -792,7 +802,7 @@ def Breakout_obs_space():
 def main():
     cpa = BreakoutAgent()
     print(cpa.model)
-    #cpa.train()
+    cpa.train()
     #cpa.run_and_visualize()
     #cpa.generate_video()
     # cpa.model.load_state_dict(torch.load('mytraining.pt'))
