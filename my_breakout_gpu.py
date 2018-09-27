@@ -51,7 +51,7 @@ class episode():
 # Stores state, action, next_state, reward, done
 
 class ReplayMemory():
-    def __init__(self, capacity = 1000000):
+    def __init__(self, capacity = 1000):
         ''' Initializes empty replay memory '''
         self.capacity = capacity
         self.memory = [episode() for i in range(capacity)]
@@ -246,7 +246,7 @@ class BreakoutAgent():
         #self.use_cuda = False
         self.lr = lr
         self.lr_min = lr / 5
-        self.lr_decay_wavelength = 3000000
+        self.lr_decay_wavelength = 2500000
         
         self.num_episodes = num_episodes
         self.discount = discount
@@ -276,7 +276,7 @@ class BreakoutAgent():
         self.train_freq = 4
         self.errors = []
         self.replay_mem_size = self.memory.capacity
-        self.mem_init_size = 50000
+        self.mem_init_size = 50
         self.action_repeat = 1
         self.no_op_max=30
         
@@ -568,7 +568,7 @@ class BreakoutAgent():
                 # Most likely unneeded for cart pole, but targets networks are used
                 # generally in DQN.
                 
-                if steps_done % self.copy_frequency == 0 and len(self.memory) >= self.mem_init_size:
+                if train_steps % self.copy_frequency == 0 and len(self.memory) >= self.mem_init_size:
                     del self.target_model
                     self.target_model = copy.deepcopy(self.model)
                     
@@ -715,15 +715,15 @@ class BreakoutAgent():
     def generate_video(self):
         
         fourcc = cv2.VideoWriter_fourcc(*'DIVX')
-        out = cv2.VideoWriter('breakout.avi', fourcc, 20, (160, 210), isColor=True)
+        out = cv2.VideoWriter('breakout.avi', fourcc, 50, (160, 210), isColor=True)
         
-        num_models = 1
-        num_games = 250
+        num_models = 28
+        num_games = 5
         
         games = []
         scores = []
         
-        for i in range(23, 27):
+        for i in range(8, 20):
             self.model.load_state_dict(torch.load('models/mytraining.pt' + str(i)))
             self.model = self.model.cuda()
             
@@ -741,12 +741,12 @@ class BreakoutAgent():
                    
                     state = self.convert_to_grayscale(self.down_sample(state))
                     action = self.select_action(state, explore = False)
-                    if (random.random() > 0.95):
+                    if (random.random() > 0.97):
                         action = random.randint(0, len(self.action_space)-1)
                     next_state, reward, done, _ = self.env.step(action)
                     score += reward
                     t += 1
-                    self.env.render()
+                    #self.env.render()
                     nonterminal = not done
                     episode = (state, action, None, reward, nonterminal)
                     self.memory.push(episode)
@@ -754,12 +754,14 @@ class BreakoutAgent():
                     if done:
                         print("Model {} finished after {} timesteps with score {}".format(i, t+1, score))
                         break
-                if (score >= 90):
+                if ((score >= 400 and t <= 4000) or score >= 450):
                     games.append(curr_game)
                     scores.append(score)
+                if (len(games) >= 10):
+                    break
         
         score_indices = sorted(range(len(scores)), key=lambda k: scores[k], reverse=True)
-        for i in range(20):
+        for i in range(5):
             game = games[score_indices[i]]
             for j in range(len(game)):
                 out.write(game[j])
@@ -786,12 +788,12 @@ class BreakoutAgent():
         return img
     
     def regularize_reward(self, r):
-        """
+        
         if (r > 0):
             return 1
         return 0
-        """
-        return r
+        
+        #return r
                     
 def Breakout_action_space():
     return range(4)
