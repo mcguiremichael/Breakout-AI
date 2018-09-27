@@ -51,7 +51,7 @@ class episode():
 # Stores state, action, next_state, reward, done
 
 class ReplayMemory():
-    def __init__(self, capacity = 1000):
+    def __init__(self, capacity = 1000000):
         ''' Initializes empty replay memory '''
         self.capacity = capacity
         self.memory = [episode() for i in range(capacity)]
@@ -276,7 +276,7 @@ class BreakoutAgent():
         self.train_freq = 4
         self.errors = []
         self.replay_mem_size = self.memory.capacity
-        self.mem_init_size = 50
+        self.mem_init_size = 50000
         self.action_repeat = 1
         self.no_op_max=30
         
@@ -754,14 +754,16 @@ class BreakoutAgent():
                     if done:
                         print("Model {} finished after {} timesteps with score {}".format(i, t+1, score))
                         break
-                if ((score >= 400 and t <= 4000) or score >= 450):
+                if ((score >= 420 and t <= 3000) or score >= 450):
                     games.append(curr_game)
                     scores.append(score)
-                if (len(games) >= 10):
-                    break
+                    if (len(games) >= 1):
+                        break
+            if (len(games) >= 1):
+                break
         
         score_indices = sorted(range(len(scores)), key=lambda k: scores[k], reverse=True)
-        for i in range(5):
+        for i in range(1):
             game = games[score_indices[i]]
             for j in range(len(game)):
                 out.write(game[j])
