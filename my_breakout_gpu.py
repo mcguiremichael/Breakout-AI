@@ -222,7 +222,7 @@ class BreakoutAgent():
     '''
 
     def __init__(self, num_episodes = 50000, discount = 0.99, epsilon_max = 1.0,
-                epsilon_min = 0.05, epsilon_decay = 1000000, lr = 0.00025,
+                epsilon_min = 0.1, epsilon_decay = 1000000, lr = 0.00025,
                 batch_size = 32, copy_frequency = 10000):
         '''
         Instantiates DQN agent
@@ -245,8 +245,8 @@ class BreakoutAgent():
         self.use_cuda = torch.cuda.is_available()
         #self.use_cuda = False
         self.lr = lr
-        self.lr_min = lr / 5
-        self.lr_decay_wavelength = 2500000
+        self.lr_min = lr / 2
+        self.lr_decay_wavelength = 10000000
         
         self.num_episodes = num_episodes
         self.discount = discount
@@ -261,8 +261,9 @@ class BreakoutAgent():
         self.memory = ReplayMemory()
         
         #self.env = gym.make('Breakout-v0')
-        self.env = gym.make('BreakoutDeterministic-v4')
-        self.action_space = range(4)
+        self.env_name = 'SpaceInvaders-v4'
+        self.env = gym.make(self.env_name)
+        self.action_space = range(self.env.action_space.n)
         self.obs_space = Breakout_obs_space()
         
         print(self.env.action_space, self.env.observation_space)
@@ -560,7 +561,7 @@ class BreakoutAgent():
                     if (len(self.errors) % 200000 == 0):
                         #self.model.module.save_state_dict('mytraining.pt')
                         #torch.save(self.model.module.state_dict(), 'mytraining.pt')
-                        filename = 'models/mytraining.pt' + str(num_saves)
+                        filename = 'SpaceInvaders-v4_models/mytraining.pt' + str(num_saves)
                         num_saves += 1
                         torch.save(self.model.state_dict(), filename)
                 
@@ -568,7 +569,7 @@ class BreakoutAgent():
                 # Most likely unneeded for cart pole, but targets networks are used
                 # generally in DQN.
                 
-                if train_steps % self.copy_frequency == 0 and len(self.memory) >= self.mem_init_size:
+                if steps_done % self.copy_frequency == 0 and len(self.memory) >= self.mem_init_size:
                     del self.target_model
                     self.target_model = copy.deepcopy(self.model)
                     
@@ -790,12 +791,12 @@ class BreakoutAgent():
         return img
     
     def regularize_reward(self, r):
-        
+        """
         if (r > 0):
             return 1
         return 0
-        
-        #return r
+        """
+        return r
                     
 def Breakout_action_space():
     return range(4)
