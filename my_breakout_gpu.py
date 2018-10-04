@@ -670,8 +670,9 @@ class BreakoutAgent():
         plt.figure(1)
         plt.clf()
         scores_a = np.array(scores)
+        scores_average = np.mean(scores_a.reshape(-1, 50), axis=1)
         plt.title('Training...')
-        plt.xlabel('Game Number')
+        plt.xlabel('Game Epoch')
         plt.ylabel('Score')
         plt.plot(scores_a)
         plt.pause(0.001)  # pause a bit so that plots are updated
