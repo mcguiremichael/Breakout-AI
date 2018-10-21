@@ -124,7 +124,7 @@ class DQN(nn.Module):
     '''
 
     def __init__(self, input_size, output_size, hidden_sizes,
-                    hidden_activation = F.relu):
+                    hidden_activation = F.leaky_relu):
         '''
         Instantiates DQN
         Position Arguments:
@@ -222,7 +222,7 @@ class BreakoutAgent():
     '''
 
     def __init__(self, num_episodes = 50000, discount = 0.99, epsilon_max = 1.0,
-                epsilon_min = 0.1, epsilon_decay = 1000000, lr = 0.00025,
+                epsilon_min = 0.07, epsilon_decay = 1000000, lr = 0.00025,
                 batch_size = 32, copy_frequency = 10000):
         '''
         Instantiates DQN agent
@@ -245,8 +245,8 @@ class BreakoutAgent():
         self.use_cuda = torch.cuda.is_available()
         #self.use_cuda = False
         self.lr = lr
-        self.lr_min = lr / 2
-        self.lr_decay_wavelength = 10000000
+        self.lr_min = lr
+        self.lr_decay_wavelength = 2500000
         
         self.num_episodes = num_episodes
         self.discount = discount
@@ -261,14 +261,14 @@ class BreakoutAgent():
         self.memory = ReplayMemory()
         
         #self.env = gym.make('Breakout-v0')
-        self.env_name = 'SpaceInvaders-v4'
+        self.env_name = 'StarGunner-v0'
         self.env = gym.make(self.env_name)
         self.action_space = range(self.env.action_space.n)
         self.obs_space = Breakout_obs_space()
         
         print(self.env.action_space, self.env.observation_space)
         
-        self.model = DQN(self.obs_space[0] * self.obs_space[1] * self.obs_space[2], len(self.action_space), [256])
+        self.model = DQN(self.obs_space[0] * self.obs_space[1] * self.obs_space[2], len(self.action_space), [512])
         if (self.use_cuda):
             self.model = self.model.cuda()
         self.target_model = copy.deepcopy(self.model)
@@ -561,7 +561,7 @@ class BreakoutAgent():
                     if (len(self.errors) % 200000 == 0):
                         #self.model.module.save_state_dict('mytraining.pt')
                         #torch.save(self.model.module.state_dict(), 'mytraining.pt')
-                        filename = 'SpaceInvaders-v4_models/mytraining.pt' + str(num_saves)
+                        filename = self.env_name + '_models/mytraining.pt' + str(num_saves)
                         num_saves += 1
                         torch.save(self.model.state_dict(), filename)
                 
@@ -636,7 +636,7 @@ class BreakoutAgent():
         return self.memory.next_states(indices)
                     
     def print_statistics(self, iter_num, loss, sample_qs, sample_target):
-        print("Loss at iteration %d is %f. Vals: %s. Targets: %f" % (iter_num, loss, np.array_str(sample_qs), sample_target)),
+        print("Loss at iteration %d is %f. Targets: %f" % (iter_num, loss, sample_target)),
 	
 
     def displayStack(self, state):
@@ -674,19 +674,19 @@ class BreakoutAgent():
         plt.title('Training...')
         plt.xlabel('Game Epoch')
         plt.ylabel('Score')
-        plt.plot(scores_a)
+        plt.plot(scores_average)
         plt.pause(0.001)  # pause a bit so that plots are updated
 
     def run_and_visualize(self):
         ''' Runs and visualizes the cartpole agents. '''
                 
         
-        self.model.load_state_dict(torch.load('models/mytraining.pt50'))
+        self.model.load_state_dict(torch.load('SpaceInvaders-v4_models/mytraining.pt0'))
         self.model = self.model.cuda()
         
         self.env.reset()
         for j in range(100):
-            self.model.load_state_dict(torch.load('models/mytraining.pt' + str(j)))
+            self.model.load_state_dict(torch.load('SpaceInvaders-v4_models/mytraining.pt' + str(j)))
             self.model = self.model.cuda()
             for i in range(3):
                 #self.env.reset()
@@ -717,7 +717,7 @@ class BreakoutAgent():
     def generate_video(self):
         
         fourcc = cv2.VideoWriter_fourcc(*'DIVX')
-        out = cv2.VideoWriter('breakout.avi', fourcc, 50, (160, 210), isColor=True)
+        out = cv2.VideoWriter('Space-Invaders.avi', fourcc, 50, (160, 210), isColor=True)
         
         num_models = 28
         num_games = 5
@@ -725,8 +725,8 @@ class BreakoutAgent():
         games = []
         scores = []
         
-        for i in range(8, 20):
-            self.model.load_state_dict(torch.load('models/mytraining.pt' + str(i)))
+        for i in range(50, 117):
+            self.model.load_state_dict(torch.load('SpaceInvaders-v4_models/mytraining.pt' + str(i)))
             self.model = self.model.cuda()
             
             for j in range(num_games):
@@ -743,7 +743,7 @@ class BreakoutAgent():
                    
                     state = self.convert_to_grayscale(self.down_sample(state))
                     action = self.select_action(state, explore = False)
-                    if (random.random() > 0.97):
+                    if (random.random() > 0.98):
                         action = random.randint(0, len(self.action_space)-1)
                     next_state, reward, done, _ = self.env.step(action)
                     score += reward
@@ -756,7 +756,8 @@ class BreakoutAgent():
                     if done:
                         print("Model {} finished after {} timesteps with score {}".format(i, t+1, score))
                         break
-                if ((score >= 420 and t <= 3000) or score >= 450):
+                if ((score >= 700)):
+                    print("Appending game")
                     games.append(curr_game)
                     scores.append(score)
                     if (len(games) >= 1):
@@ -792,12 +793,11 @@ class BreakoutAgent():
         return img
     
     def regularize_reward(self, r):
-        """
+        
         if (r > 0):
             return 1
         return 0
-        """
-        return r
+        
                     
 def Breakout_action_space():
     return range(4)
