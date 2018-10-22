@@ -22,9 +22,9 @@ from collections import namedtuple
 import time
 import scipy.misc
 
-from pympler import asizeof
 from collections import OrderedDict
 import cv2
+import os
 
 np.set_printoptions(precision=4)
 Transition = namedtuple('Transition',
@@ -246,7 +246,7 @@ class BreakoutAgent():
         #self.use_cuda = False
         self.lr = lr
         self.lr_min = lr / 2
-        self.lr_decay_wavelength = 10000000
+        self.lr_decay_wavelength = 2500000
         
         self.num_episodes = num_episodes
         self.discount = discount
@@ -277,7 +277,7 @@ class BreakoutAgent():
         self.train_freq = 4
         self.errors = []
         self.replay_mem_size = self.memory.capacity
-        self.mem_init_size = 50000
+        self.mem_init_size = 50
         self.action_repeat = 1
         self.no_op_max=30
         
@@ -473,10 +473,10 @@ class BreakoutAgent():
                         actions = np.array(batch.action).reshape((n, 1))
                         action_batch = Variable(torch.from_numpy(actions)).cuda()
                         next_state_batch = Variable(torch.from_numpy(y).type(torch.FloatTensor), volatile = True).cuda()
-                        rewards = np.array(batch.reward)
+                        rewards = np.array(batch.reward).reshape((n, 1))
                         reward_batch = Variable(torch.from_numpy(rewards).type(torch.FloatTensor)).cuda()
                         
-                        nonterminal = np.array(batch.nonterminal, dtype=np.uint8)
+                        nonterminal = np.array(batch.nonterminal, dtype=np.uint8).reshape((n, 1))
                         nonterminal_mask = Variable(torch.from_numpy(nonterminal).type(torch.ByteTensor)).cuda()
 
                         # Predict Q(s, a) for s in batch
@@ -487,17 +487,17 @@ class BreakoutAgent():
                         # if terminal state, then target = rewards
                         # else target = r(s, a) + discount * max_a Q(s', a) where s' is
                         # next state
-                        next_state_values = Variable(torch.zeros(n), volatile = True).cuda()
+                        next_state_values = Variable(torch.zeros(n,1), volatile = True).cuda()
                     else:
                         state_batch = Variable(torch.from_numpy(x).type(torch.FloatTensor))
                         n = state_batch.data.shape[0]
                         actions = np.array(batch.action).reshape((n, 1))
                         action_batch = Variable(torch.from_numpy(actions))
                         next_state_batch = Variable(torch.from_numpy(y).type(torch.FloatTensor), volatile = True)
-                        rewards = np.array(batch.reward)
+                        rewards = np.array(batch.reward).reshape((n, 1))
                         reward_batch = Variable(torch.from_numpy(rewards).type(torch.FloatTensor))
                         
-                        nonterminal = np.array(batch.nonterminal, dtype=np.uint8)
+                        nonterminal = np.array(batch.nonterminal, dtype=np.uint8).reshape((n, 1))
                         nonterminal_mask = Variable(torch.from_numpy(nonterminal).type(torch.ByteTensor))
 
                         # Predict Q(s, a) for s in batch
@@ -508,21 +508,18 @@ class BreakoutAgent():
                         # if terminal state, then target = rewards
                         # else target = r(s, a) + discount * max_a Q(s', a) where s' is
                         # next state
-                        next_state_values = Variable(torch.zeros(n), volatile = True)
-                    action_indices = torch.nonzero(nonterminal_mask).squeeze(1)
-                    #print(nonterminal_mask.cpu().data.numpy())
+                        next_state_values = Variable(torch.zeros(n,1), volatile = True)
+                        
+                    action_indices = torch.nonzero(nonterminal_mask)[:,0]
                     preds = self.target_model(next_state_batch[action_indices])
-                    # print(indices.shape, preds.shape)
-                    #print(next_state_values[nonterminal_mask].data.shape, torch.max(preds, dim = 1)[0].data.shape)
                     next_state_values[nonterminal_mask], _ = torch.max(
                                 preds,
                                 dim = 1)
-
                     # Make sure the final loss is not volatile
                     next_state_values.volatile = False
                     next_state_values = next_state_values * self.discount +  reward_batch
                     # Define loss function and optimize
-                    loss = self.loss(q_batch, next_state_values)
+                    loss = self.loss(q_batch, next_state_values.detach())
                     self.optimizer.zero_grad()
                     loss.backward()
                     
@@ -561,7 +558,10 @@ class BreakoutAgent():
                     if (len(self.errors) % 200000 == 0):
                         #self.model.module.save_state_dict('mytraining.pt')
                         #torch.save(self.model.module.state_dict(), 'mytraining.pt')
-                        filename = 'SpaceInvaders-v4_models/mytraining.pt' + str(num_saves)
+                        folder_name = self.env_name + '_models'
+                        if not os.path.exists(folder_name):
+                            os.mkdir(folder_name)
+                        filename = folder_name + '/mytraining.pt' + str(num_saves)
                         num_saves += 1
                         torch.save(self.model.state_dict(), filename)
                 
@@ -579,8 +579,9 @@ class BreakoutAgent():
                     print("Game %d lasted %d frames with score %d" % (len(scores), duration, curr_score))
                     durations.append(duration)
                     scores.append(curr_score)
-                    if (len(scores) % 50) == 0:
-                        self.plot_scores(scores)
+                    plot_period = 50
+                    if (len(scores) % plot_period) == 0:
+                        self.plot_scores(scores, plot_period)
                     duration = 0
                     curr_score = 0
                     self.env.reset()
@@ -666,29 +667,36 @@ class BreakoutAgent():
         plt.plot(durations_a)
         plt.pause(0.001)  # pause a bit so that plots are updated
         
-    def plot_scores(self, scores):
+    def plot_scores(self, scores, plot_period):
         plt.figure(1)
         plt.clf()
         scores_a = np.array(scores)
-        scores_average = np.mean(scores_a.reshape(-1, 50), axis=1)
+        scores_average = np.mean(scores_a.reshape(-1, plot_period), axis=1)
         plt.title('Training...')
         plt.xlabel('Game Epoch')
         plt.ylabel('Score')
-        plt.plot(scores_a)
-        plt.pause(0.001)  # pause a bit so that plots are updated
+        plt.plot(scores_average)
+        plt.show(block=False)
+        plt.pause(0.01)  # pause a bit so that plots are updated
 
     def run_and_visualize(self):
         ''' Runs and visualizes the cartpole agents. '''
                 
-        
-        self.model.load_state_dict(torch.load('models/mytraining.pt50'))
+        folder_name = self.env_name + '_models'
+        full_name = folder_name + '/mytraining.pt'
+        self.model.load_state_dict(torch.load(full_name+'50'))
         self.model = self.model.cuda()
         
         self.env.reset()
-        for j in range(100):
-            self.model.load_state_dict(torch.load('models/mytraining.pt' + str(j)))
+        
+        num_models = 222
+        num_games = 10
+        for j in range(num_models):
+            self.model.load_state_dict(torch.load(full_name + str(j)))
             self.model = self.model.cuda()
-            for i in range(3):
+            score_total = 0
+            t_total = 0
+            for i in range(num_games):
                 #self.env.reset()
                 state = self.env.reset()
                 actions = []
@@ -712,7 +720,11 @@ class BreakoutAgent():
                     state = next_state
                     if done:
                         print("Model {} finished after {} timesteps with score {}".format(j, t+1, score))
+                        score_total += score
+                        t_total += t
                         break
+                        
+            print("Model {} had an average score of {} with average length {}".format(j, score_total/num_games, t_total/num_games))
                         
     def generate_video(self):
         
@@ -808,8 +820,8 @@ def Breakout_obs_space():
 def main():
     cpa = BreakoutAgent()
     print(cpa.model)
-    cpa.train()
-    #cpa.run_and_visualize()
+    #cpa.train()
+    cpa.run_and_visualize()
     #cpa.generate_video()
     # cpa.model.load_state_dict(torch.load('mytraining.pt'))
     #cpa.train(training=False, num_episodes=100000)
