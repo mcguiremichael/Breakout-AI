@@ -163,6 +163,9 @@ class DQN(nn.Module):
         self.conv3.weight.data.xavier_uniform_()
         self.conv3.bias.data.xavier_uniform_()
         """
+        self.conv1_bn = nn.BatchNorm2d(FILTERS_1)
+        self.conv2_bn = nn.BatchNorm2d(FILTERS_2)
+        self.conv3_bn = nn.BatchNorm2d(FILTERS_3)
 
         nn.init.xavier_uniform(self.conv1.weight.data)
         nn.init.xavier_uniform(self.conv2.weight.data)
@@ -178,6 +181,7 @@ class DQN(nn.Module):
         for l in range(self.num_layers):
             self.lin_layers.append(nn.Linear(sizes[l], sizes[l+1]))
             nn.init.xavier_uniform(self.lin_layers[-1].weight.data)
+        
 
     def conv_output(self, shape):
         inp = Variable(torch.rand(1, *shape))
@@ -186,11 +190,11 @@ class DQN(nn.Module):
         return n_size
 
     def forward_features(self, x):
-        x = self.hidden_activation(self.conv1(x))
+        x = self.conv1_bn(self.hidden_activation(self.conv1(x)))
         #x = F.max_pool3d(x, (2, 2, 1), (2, 2, 1))
-        x = self.hidden_activation(self.conv2(x))
+        x = self.conv2_bn(self.hidden_activation(self.conv2(x)))
         #x = F.max_pool3d(x, (2, 2, 1), (2, 2, 1))
-        x = self.hidden_activation(self.conv3(x))
+        x = self.conv3_bn(self.hidden_activation(self.conv3(x)))
         return x
 
     def forward(self, x):
@@ -222,7 +226,7 @@ class BreakoutAgent():
     '''
 
     def __init__(self, num_episodes = 50000, discount = 0.99, epsilon_max = 1.0,
-                epsilon_min = 0.07, epsilon_decay = 1000000, lr = 0.00025,
+                epsilon_min = 0.1, epsilon_decay = 1000000, lr = 0.00025,
                 batch_size = 32, copy_frequency = 10000):
         '''
         Instantiates DQN agent
@@ -245,7 +249,7 @@ class BreakoutAgent():
         self.use_cuda = torch.cuda.is_available()
         #self.use_cuda = False
         self.lr = lr
-        self.lr_min = lr
+        self.lr_min = lr/2
         self.lr_decay_wavelength = 2500000
         
         self.num_episodes = num_episodes
@@ -261,7 +265,7 @@ class BreakoutAgent():
         self.memory = ReplayMemory()
         
         #self.env = gym.make('Breakout-v0')
-        self.env_name = 'StarGunner-v0'
+        self.env_name = 'SpaceInvaders-v0'
         self.env = gym.make(self.env_name)
         self.action_space = range(self.env.action_space.n)
         self.obs_space = Breakout_obs_space()
@@ -272,8 +276,9 @@ class BreakoutAgent():
         if (self.use_cuda):
             self.model = self.model.cuda()
         self.target_model = copy.deepcopy(self.model)
-        self.optimizer = optim.RMSprop(self.model.parameters(), lr=lr, eps=1e-2, momentum=0.95, alpha=0.95)
+        #self.optimizer = optim.RMSprop(self.model.parameters(), lr=lr, eps=1e-2, momentum=0.95, alpha=0.95)
         #self.optimizer = optim.Adadelta(self.model.parameters(), rho=0.9)
+        self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
         self.train_freq = 4
         self.errors = []
         self.replay_mem_size = self.memory.capacity
@@ -467,6 +472,7 @@ class BreakoutAgent():
                     n_states = self.next_states(indices)
                     y = (self.group_augment(n_states, isnext=True, cs=batch.state, indices=indices)) 
                     outs = 0
+                    n = 0
                     if (self.use_cuda):
                         state_batch = Variable(torch.from_numpy(x).type(torch.FloatTensor)).cuda()
                         n = state_batch.data.shape[0]
@@ -522,7 +528,7 @@ class BreakoutAgent():
                     next_state_values.volatile = False
                     next_state_values = next_state_values * self.discount +  reward_batch
                     # Define loss function and optimize
-                    loss = self.loss(q_batch, next_state_values)
+                    loss = self.loss(q_batch, next_state_values.detach().view(n,1))
                     self.optimizer.zero_grad()
                     loss.backward()
                     
@@ -544,7 +550,7 @@ class BreakoutAgent():
                     target = next_state_values.data[0]
                     self.print_statistics(len(self.errors), l, sample_qs, target)
                     
-                    """
+                    
                     del batch
                     del state_batch
                     del action_batch
@@ -556,7 +562,7 @@ class BreakoutAgent():
                     del preds
                     del q_batch
                     del loss
-                    """
+                    
                     
                     if (len(self.errors) % 200000 == 0):
                         #self.model.module.save_state_dict('mytraining.pt')
