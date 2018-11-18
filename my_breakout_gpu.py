@@ -12,6 +12,7 @@ import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
 import copy
+import os
 
 import torch
 import torch.nn as nn
@@ -227,7 +228,7 @@ class BreakoutAgent():
 
     def __init__(self, num_episodes = 50000, discount = 0.99, epsilon_max = 1.0,
                 epsilon_min = 0.1, epsilon_decay = 1000000, lr = 0.00025,
-                batch_size = 32, copy_frequency = 10000):
+                batch_size = 32, copy_frequency = 5000):
         '''
         Instantiates DQN agent
         Keyword Arguments:
@@ -266,6 +267,9 @@ class BreakoutAgent():
         
         #self.env = gym.make('Breakout-v0')
         self.env_name = 'SpaceInvaders-v0'
+        self.folder_name = self.env_name + '_models'
+        if not os.path.exists(self.folder_name):
+            os.makedirs(self.folder_name)
         self.env = gym.make(self.env_name)
         self.action_space = range(self.env.action_space.n)
         self.obs_space = Breakout_obs_space()
@@ -427,7 +431,7 @@ class BreakoutAgent():
                     scheduler.step()
             
                 # Select action and take step
-                self.env.render()
+                #self.env.render()
                 #self.memory.states = np.concatenate([self.memory.states, state], 0)
                 #aug_state = self.augment(state)
                 if (steps_done % self.action_repeat == 0):
@@ -567,7 +571,7 @@ class BreakoutAgent():
                     if (len(self.errors) % 200000 == 0):
                         #self.model.module.save_state_dict('mytraining.pt')
                         #torch.save(self.model.module.state_dict(), 'mytraining.pt')
-                        filename = self.env_name + '_models/mytraining.pt' + str(num_saves)
+                        filename = self.folder_name + '/mytraining' + str(num_saves) + '.pt'
                         num_saves += 1
                         torch.save(self.model.state_dict(), filename)
                 
@@ -714,7 +718,7 @@ class BreakoutAgent():
                     nonterminal = not done
                     episode = (state, action, None, reward, nonterminal)
                     self.memory.push(episode)
-                    self.env.render()
+                    #self.env.render()
                     state = next_state
                     if done:
                         print("Model {} finished after {} timesteps with score {}".format(j, t+1, score))
@@ -799,11 +803,12 @@ class BreakoutAgent():
         return img
     
     def regularize_reward(self, r):
-        
+        """
         if (r > 0):
             return 1
         return 0
-        
+        """
+        return r
                     
 def Breakout_action_space():
     return range(4)
