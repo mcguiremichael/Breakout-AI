@@ -286,7 +286,7 @@ class BreakoutAgent():
         self.train_freq = 4
         self.errors = []
         self.replay_mem_size = self.memory.capacity
-        self.mem_init_size = 50000
+        self.mem_init_size = 50
         self.action_repeat = 1
         self.no_op_max=30
         
@@ -545,7 +545,7 @@ class BreakoutAgent():
                         torch.cuda.empty_cache()
                     """
                     if (self.use_cuda):
-                        l = loss.data[0]
+                        l = loss.cpu().data.numpy()
                     else:
                         l = loss.data[0]
                     self.errors.append(l)
@@ -589,8 +589,10 @@ class BreakoutAgent():
                     print("Game %d lasted %d frames with score %d" % (len(scores), duration, curr_score))
                     durations.append(duration)
                     scores.append(curr_score)
+                    """
                     if (len(scores) % 50) == 0:
                         self.plot_scores(scores)
+                    """
                     duration = 0
                     curr_score = 0
                     self.env.reset()
@@ -646,7 +648,7 @@ class BreakoutAgent():
         return self.memory.next_states(indices)
                     
     def print_statistics(self, iter_num, loss, sample_qs, sample_target):
-        print("Loss at iteration %d is %f. Targets: %f" % (iter_num, loss, sample_target)),
+        print("Loss at iteration %d is %f. Values: %f. Targets: %f" % (iter_num, loss, sample_qs, sample_target)),
 	
 
     def displayStack(self, state):
